@@ -55,6 +55,8 @@ const schema = defineSchema(
       fatherId: v.optional(v.id("people")),
       motherId: v.optional(v.id("people")),
       partnerId: v.optional(v.id("people")),
+      imageStorageId: v.optional(v.id("_storage")),
+      imageUrl: v.optional(v.string()),
     }).index("by_family", ["familyId"]),
   },
   {

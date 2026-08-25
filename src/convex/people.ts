@@ -10,7 +10,18 @@ const personFields = {
   fatherId: v.optional(v.id("people")),
   motherId: v.optional(v.id("people")),
   partnerId: v.optional(v.id("people")),
+  imageStorageId: v.optional(v.id("_storage")),
 };
+
+/** Signed-in curators get a short-lived URL to upload a photograph to. */
+export const generateUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new Error("Sign in to add photographs.");
+    return await ctx.storage.generateUploadUrl();
+  },
+});
 
 /** Everyone in a register. Public — the archive is browsable by anyone. */
 export const listByFamily = query({
@@ -37,13 +48,23 @@ export const create = mutation({
     const fatherId = args.fatherId || undefined;
     const motherId = args.motherId || undefined;
     const partnerId = args.partnerId || undefined;
+    if (fatherId && fatherId === partnerId) {
+      throw new Error("A father cannot also be the partner.");
+    }
+    if (motherId && motherId === partnerId) {
+      throw new Error("A mother cannot also be the partner.");
+    }
     await assertRelations(ctx, familyId, null, fatherId, motherId, partnerId);
+    const imageUrl = args.imageStorageId
+      ? ((await ctx.storage.getUrl(args.imageStorageId)) ?? undefined)
+      : undefined;
     return await ctx.db.insert("people", {
       ...args,
       name,
       fatherId,
       motherId,
       partnerId,
+      imageUrl,
     });
   },
 });
@@ -68,6 +89,12 @@ export const update = mutation({
     }
     if (partnerId === personId) {
       throw new Error("A person cannot be their own partner.");
+    }
+    if (fatherId && fatherId === partnerId) {
+      throw new Error("A father cannot also be the partner.");
+    }
+    if (motherId && motherId === partnerId) {
+      throw new Error("A mother cannot also be the partner.");
     }
     await assertRelations(
       ctx,
@@ -109,6 +136,10 @@ export const update = mutation({
       fatherId,
       motherId,
       partnerId,
+      imageStorageId: fields.imageStorageId,
+      imageUrl: fields.imageStorageId
+        ? ((await ctx.storage.getUrl(fields.imageStorageId)) ?? undefined)
+        : undefined,
     });
   },
 });
@@ -176,6 +207,16 @@ async function assertRelations(
         throw new Error(
           "That would make an ancestor their own descendant.",
         );
+      }
+    }
+    // A partner may be neither an ancestor nor a descendant — such a bond
+    // would tie the family tree into a knot the tree cannot draw.
+    if (partnerId) {
+      if (await reachesAncestor(ctx, partnerId, selfId)) {
+        throw new Error("A partner cannot be a descendant.");
+      }
+      if (await reachesAncestor(ctx, selfId, partnerId)) {
+        throw new Error("A partner cannot be an ancestor.");
       }
     }
   }

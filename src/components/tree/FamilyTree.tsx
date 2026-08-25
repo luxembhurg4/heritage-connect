@@ -156,7 +156,13 @@ export function FamilyTree({ people, focusId, onFocusChange }: FamilyTreeProps) 
     });
   };
 
+  // Guards the render pass against cycles in the data (bad relationships
+  // must never hang the page). Fresh per render, so re-renders stay correct.
+  const renderSeen = new Set<string>();
+
   const renderNode = (id: PersonId): ReactNode => {
+    if (renderSeen.has(id)) return null;
+    renderSeen.add(id);
     const person = byId.get(id);
     if (!person) return null;
     const partner = partnerOf(person);
@@ -364,16 +370,24 @@ function PersonCard({
       )}
     >
       <div className="flex items-center gap-2">
-        <span
-          className={cn(
-            "flex size-7 shrink-0 items-center justify-center rounded-full border font-serif text-xs font-bold",
-            person.sex === "female"
-              ? "border-accent bg-secondary text-accent-foreground"
-              : "border-primary/50 bg-secondary text-primary",
-          )}
-        >
-          {person.name.trim().charAt(0).toUpperCase()}
-        </span>
+        {person.imageUrl ? (
+          <img
+            src={person.imageUrl}
+            alt={person.name}
+            className="size-7 shrink-0 rounded-full border border-border object-cover"
+          />
+        ) : (
+          <span
+            className={cn(
+              "flex size-7 shrink-0 items-center justify-center rounded-full border font-serif text-xs font-bold",
+              person.sex === "female"
+                ? "border-accent bg-secondary text-accent-foreground"
+                : "border-primary/50 bg-secondary text-primary",
+            )}
+          >
+            {person.name.trim().charAt(0).toUpperCase()}
+          </span>
+        )}
         <span className="min-w-0">
           <span className="block truncate font-serif text-[13px] font-semibold leading-tight">
             {person.name}
