@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
   BookOpen,
+  ImagePlus,
   Loader2,
   LogOut,
   Pencil,
@@ -357,6 +358,7 @@ function CuratorPanel({ family }: { family: FamilyDoc }) {
     familyId: family._id,
   });
   const removePerson = useMutation(api.people.remove);
+  const repairCycles = useMutation(api.people.repairCycles);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Person | null>(null);
@@ -383,6 +385,27 @@ function CuratorPanel({ family }: { family: FamilyDoc }) {
             <Link to={`/families/${family.slug}`}>
               <BookOpen className="size-3.5" /> View Tree
             </Link>
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            title="Detect and undo impossible relationships"
+            onClick={async () => {
+              try {
+                const n = await repairCycles({ familyId: family._id });
+                toast.success(
+                  n === 0
+                    ? "No tangled links found."
+                    : `Untangled ${n} link${n === 1 ? "" : "s"}.`,
+                );
+              } catch (err) {
+                toast.error(
+                  err instanceof Error ? err.message : "Could not repair.",
+                );
+              }
+            }}
+          >
+            Untangle Links
           </Button>
           <Button
             size="sm"
@@ -442,8 +465,17 @@ function CuratorPanel({ family }: { family: FamilyDoc }) {
                     className="border-b border-border/40 last:border-0 hover:bg-secondary/40"
                   >
                     <td className="px-3 py-2 font-serif font-medium">
-                      {person.sex === "male" ? "♂ " : person.sex === "female" ? "♀ " : ""}
-                      {person.name}
+                      <span className="flex items-center gap-2">
+                        {person.imageUrl ? (
+                          <img
+                            src={person.imageUrl}
+                            alt=""
+                            className="size-6 shrink-0 rounded-full border border-border object-cover"
+                          />
+                        ) : null}
+                        {person.sex === "male" ? "♂ " : person.sex === "female" ? "♀ " : ""}
+                        <span className="truncate">{person.name}</span>
+                      </span>
                     </td>
                     <td className="px-3 py-2 text-xs italic tabular-nums text-muted-foreground">
                       {person.birthYear || person.deathYear
@@ -541,25 +573,22 @@ function RelationField({
   value,
   onChange,
   options,
-  excludeIds,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: Person[];
-  excludeIds: Set<string>;
 }) {
-  const available = options.filter((p) => !excludeIds.has(p._id));
   return (
-    <div>
+    <div className="min-w-0">
       <Label className="label-archival text-muted-foreground">{label}</Label>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="mt-1.5 font-serif">
+        <SelectTrigger className="mt-1.5 w-full min-w-0 font-serif [&>span]:truncate">
           <SelectValue placeholder="—" />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={NONE}>None recorded</SelectItem>
-          {available.map((p) => (
+          {options.map((p) => (
             <SelectItem key={p._id} value={p._id}>
               {p.name}
               {p.birthYear ? ` (${p.birthYear})` : ""}
@@ -586,9 +615,16 @@ function PersonDialog({
 }) {
   const create = useMutation(api.people.create);
   const update = useMutation(api.people.update);
+  const generateUploadUrl = useMutation(api.people.generateUploadUrl);
   const [form, setForm] = useState<PersonFormState>(EMPTY_FORM);
   const [prefillKey, setPrefillKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [imageStorageId, setImageStorageId] = useState<Id<"_storage"> | null>(
+    null,
+  );
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   // Re-seed the form whenever the dialog opens for a different target.
   const targetKey = editing ? `edit:${editing._id}` : "create";
@@ -607,10 +643,72 @@ function PersonDialog({
           }
         : EMPTY_FORM,
     );
+    setImageStorageId(editing?.imageStorageId ?? null);
+    setPreviewUrl(editing?.imageUrl ?? null);
   }
   if (!open && prefillKey !== null) {
     setPrefillKey(null);
   }
+
+  // Fathers must be male and older than the entry; mothers female and older.
+  // The current selection always stays visible so an existing choice is
+  // never silently hidden.
+  const entryBirth = yearOf(form.birthYear);
+  const olderThanEntry = (cand: Person): boolean => {
+    if (entryBirth == null) return true;
+    return cand.birthYear != null && cand.birthYear < entryBirth;
+  };
+  const selfExcluded = editing ? new Set<string>([editing._id]) : new Set<string>();
+  const fatherOptions = members.filter(
+    (m) =>
+      !selfExcluded.has(m._id) &&
+      m.sex === "male" &&
+      (olderThanEntry(m) || m._id === form.fatherId),
+  );
+  const motherOptions = members.filter(
+    (m) =>
+      !selfExcluded.has(m._id) &&
+      m.sex === "female" &&
+      (olderThanEntry(m) || m._id === form.motherId),
+  );
+  const partnerOptions = members.filter((m) => !selfExcluded.has(m._id));
+
+  const handleFile = async (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Choose an image file.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Keep photographs under 5 MB.");
+      return;
+    }
+    setUploading(true);
+    try {
+      const uploadUrl = await generateUploadUrl();
+      const res = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!res.ok) throw new Error("The photograph could not be filed.");
+      const { storageId } = (await res.json()) as { storageId: Id<"_storage"> };
+      setImageStorageId(storageId);
+      setPreviewUrl(URL.createObjectURL(file));
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not upload photograph.",
+      );
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removePhoto = () => {
+    setImageStorageId(null);
+    setPreviewUrl(null);
+    if (fileRef.current) fileRef.current.value = "";
+  };
 
   const set = (patch: Partial<PersonFormState>) =>
     setForm((prev) => ({ ...prev, ...patch }));
@@ -632,6 +730,7 @@ function PersonDialog({
       fatherId: unstr(form.fatherId),
       motherId: unstr(form.motherId),
       partnerId: unstr(form.partnerId),
+      imageStorageId: imageStorageId ?? undefined,
     };
     try {
       if (editing) {
@@ -727,35 +826,72 @@ function PersonDialog({
               label="Father"
               value={form.fatherId}
               onChange={(v) => set({ fatherId: v })}
-              options={members}
-              excludeIds={
-                editing
-                  ? new Set([editing._id])
-                  : new Set<string>()
-              }
+              options={fatherOptions}
             />
             <RelationField
               label="Mother"
               value={form.motherId}
               onChange={(v) => set({ motherId: v })}
-              options={members}
-              excludeIds={
-                editing
-                  ? new Set([editing._id])
-                  : new Set<string>()
-              }
+              options={motherOptions}
             />
             <RelationField
               label="Partner"
               value={form.partnerId}
               onChange={(v) => set({ partnerId: v })}
-              options={members}
-              excludeIds={
-                editing
-                  ? new Set([editing._id])
-                  : new Set<string>()
-              }
+              options={partnerOptions}
             />
+          </div>
+
+          <div>
+            <Label className="label-archival text-muted-foreground">
+              Photograph
+            </Label>
+            <div className="mt-1.5 flex flex-wrap items-center gap-3">
+              {previewUrl ? (
+                <img
+                  src={previewUrl}
+                  alt=""
+                  className="size-12 rounded-full border border-border object-cover"
+                />
+              ) : (
+                <div className="flex size-12 items-center justify-center rounded-full border border-dashed border-border text-muted-foreground">
+                  <ImagePlus className="size-4" />
+                </div>
+              )}
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => handleFile(e.target.files?.[0])}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={uploading}
+                onClick={() => fileRef.current?.click()}
+                className="gap-2"
+              >
+                {uploading ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <ImagePlus className="size-3.5" />
+                )}
+                {previewUrl ? "Replace" : "Add photo"}
+              </Button>
+              {previewUrl && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={removePhoto}
+                  className="gap-2 text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="size-3.5" /> Remove
+                </Button>
+              )}
+            </div>
           </div>
 
           <p className="text-xs italic leading-relaxed text-muted-foreground">

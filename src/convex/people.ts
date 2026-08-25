@@ -144,6 +144,60 @@ export const update = mutation({
   },
 });
 
+/**
+ * Detect and undo structurally impossible links (partner-ancestor knots,
+ * broken reciprocity) left over from earlier edits. Returns repair count.
+ */
+export const repairCycles = mutation({
+  args: { familyId: v.id("families") },
+  handler: async (ctx, { familyId }) => {
+    await requireCurator(ctx, familyId);
+    const members = await ctx.db
+      .query("people")
+      .withIndex("by_family", (q) => q.eq("familyId", familyId))
+      .collect();
+    let repairs = 0;
+    for (const p of members) {
+      const patch: Record<string, any> = {};
+      if (
+        p.fatherId &&
+        (p.fatherId === p.partnerId ||
+          (await reachesAncestor(ctx, p.fatherId, p._id)))
+      ) {
+        patch.fatherId = undefined;
+        repairs++;
+      }
+      if (
+        p.motherId &&
+        (p.motherId === p.partnerId ||
+          (await reachesAncestor(ctx, p.motherId, p._id)))
+      ) {
+        patch.motherId = undefined;
+        repairs++;
+      }
+      if (p.partnerId) {
+        const q = await ctx.db.get(p.partnerId);
+        const isDescendant =
+          q?.fatherId === p._id || q?.motherId === p._id ||
+          (await reachesAncestor(ctx, p.partnerId, p._id));
+        const isAncestor = await reachesAncestor(ctx, p._id, p.partnerId);
+        if (!q || q.familyId !== familyId || isDescendant || isAncestor) {
+          patch.partnerId = undefined;
+          repairs++;
+        } else if (q.partnerId !== p._id) {
+          // Heal broken reciprocity instead of severing the bond.
+          await ctx.db.patch(q._id, { partnerId: p._id });
+          repairs++;
+        }
+      }
+      if (Object.keys(patch).length > 0) {
+        await ctx.db.patch(p._id, patch);
+      }
+    }
+    return repairs;
+  },
+});
+
 export const remove = mutation({
   args: { personId: v.id("people") },
   handler: async (ctx, { personId }) => {
