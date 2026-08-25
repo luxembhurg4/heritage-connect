@@ -176,14 +176,12 @@ export default function FamilyTreePage() {
                   </p>
                 ) : (
                   <div className="frame-archive relative max-h-[68vh] overflow-auto rounded-sm bg-card/40 p-8">
-                    <div
-                      className="mx-auto w-fit min-w-max"
-                      style={{ zoom }}
-                    >
+                    <div className="mx-auto w-fit min-w-max">
                       <FamilyTree
                         people={people}
                         focusId={focusId}
                         onFocusChange={setFocusId}
+                        zoom={zoom}
                       />
                     </div>
                   </div>
