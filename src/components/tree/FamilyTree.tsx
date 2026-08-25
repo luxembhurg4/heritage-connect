@@ -326,7 +326,7 @@ function PersonCluster({
           </div>
           <PersonCard
             person={partner}
-            highlighted={partner._id === focusId}
+            highlighted={partner._id === person._id ? false : isFocus}
             onSelect={() => onSelect?.(partner._id)}
           />
         </>
