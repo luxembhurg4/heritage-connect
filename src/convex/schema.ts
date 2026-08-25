@@ -32,12 +32,30 @@ const schema = defineSchema(
       role: v.optional(roleValidator), // role of the user. do not remove
     }).index("email", ["email"]), // index for the email. do not remove or modify
 
-    // add other tables here
+    // Public family registers (archives).
+    families: defineTable({
+      name: v.string(),
+      slug: v.string(),
+      description: v.optional(v.string()),
+      createdBy: v.optional(v.id("users")),
+      createdAt: v.number(),
+    })
+      .index("by_slug", ["slug"])
+      .index("by_creator", ["createdBy"]),
 
-    // tableName: defineTable({
-    //   ...
-    //   // table fields
-    // }).index("by_field", ["field"])
+    // People belonging to a family register.
+    // Relationships: fatherId/motherId create lineage (shared parents => siblings,
+    // detected automatically); partnerId is a single spouse/partner link.
+    people: defineTable({
+      familyId: v.id("families"),
+      name: v.string(),
+      sex: v.optional(v.union(v.literal("male"), v.literal("female"))),
+      birthYear: v.optional(v.number()),
+      deathYear: v.optional(v.number()),
+      fatherId: v.optional(v.id("people")),
+      motherId: v.optional(v.id("people")),
+      partnerId: v.optional(v.id("people")),
+    }).index("by_family", ["familyId"]),
   },
   {
     schemaValidation: false,
