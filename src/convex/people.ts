@@ -126,13 +126,14 @@ export const update = mutation({
         await ctx.db.patch(oldPartner._id, { partnerId: undefined });
       }
     }
-    if (partnerId && partnerId !== person.partnerId) {
+    if (partnerId) {
       const newPartner = await ctx.db.get(partnerId);
       if (!newPartner) throw new Error("Partner not found.");
       if (newPartner.familyId !== person.familyId) {
         throw new Error("Partner must belong to the same register.");
       }
       if (
+        partnerId !== person.partnerId &&
         newPartner.partnerId &&
         newPartner.partnerId !== personId
       ) {
@@ -141,7 +142,11 @@ export const update = mutation({
           await ctx.db.patch(displaced._id, { partnerId: undefined });
         }
       }
-      await ctx.db.patch(partnerId, { partnerId: personId });
+      // Always ensure the named partner points back — even when the bond is
+      // unchanged, this heals one-sided bonds left over from older saves.
+      if (newPartner.partnerId !== personId) {
+        await ctx.db.patch(partnerId, { partnerId: personId });
+      }
     }
     await ctx.db.patch(personId, {
       name,

@@ -39,8 +39,16 @@ export function FamilyTree({ people, focusId, onFocusChange }: FamilyTreeProps) 
     setDownOpen(new Set([focusId]));
   }, [focusId]);
 
-  const partnerOf = (p?: Person): Person | undefined =>
-    p?.partnerId ? byId.get(p.partnerId) : undefined;
+  const partnerOf = (p?: Person): Person | undefined => {
+    if (!p) return undefined;
+    if (p.partnerId) {
+      const direct = byId.get(p.partnerId);
+      if (direct) return direct;
+    }
+    // Defensive: if a legacy bond is one-sided (the partner names this person
+    // but not vice versa), still draw the couple instead of hiding the spouse.
+    return people.find((q) => q.partnerId === p._id);
+  };
 
   const parentsOfCouple = (a?: Person, b?: Person): Person[] => {
     const ids = new Set<string>();
