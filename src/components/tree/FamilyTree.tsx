@@ -198,7 +198,7 @@ export function FamilyTree({ people, focusId, onFocusChange }: FamilyTreeProps) 
         <PersonCluster
           person={person}
           partner={partner}
-          isFocus={person._id === focusId}
+          focusId={focusId}
           onSelect={onFocusChange}
           onFoldUp={
             showParents && allParents.length > 0 ? () => toggleUp(id) : undefined
@@ -261,14 +261,14 @@ export function FamilyTree({ people, focusId, onFocusChange }: FamilyTreeProps) 
 function PersonCluster({
   person,
   partner,
-  isFocus,
+  focusId,
   onSelect,
   onFoldUp,
   onFoldDown,
 }: {
   person: Person;
   partner?: Person;
-  isFocus: boolean;
+  focusId: Id<"people">;
   onSelect?: (id: PersonId) => void;
   onFoldUp?: () => void;
   onFoldDown?: () => void;
@@ -278,7 +278,7 @@ function PersonCluster({
       data-node={person._id}
       className="group/node relative z-10 flex items-stretch justify-center gap-1"
     >
-      {isFocus && (
+      {(person._id === focusId || partner?._id === focusId) && (
         <span className="absolute -top-7 left-1/2 -translate-x-1/2 rounded-sm bg-secondary px-2 py-0.5 text-[10px] italic text-secondary-foreground shadow-sm">
           in view
         </span>
@@ -312,9 +312,9 @@ function PersonCluster({
 
       <PersonCard
         person={person}
-        highlighted={isFocus}
+        highlighted={person._id === focusId}
         onSelect={() => onSelect?.(person._id)}
-      />
+ />
       {partner && (
         <>
           <div
@@ -326,7 +326,7 @@ function PersonCluster({
           </div>
           <PersonCard
             person={partner}
-            highlighted={partner._id === person._id ? false : isFocus}
+            highlighted={partner._id === focusId}
             onSelect={() => onSelect?.(partner._id)}
           />
         </>

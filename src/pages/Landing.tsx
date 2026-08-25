@@ -12,7 +12,7 @@ const fadeUp = {
 
 export default function Landing() {
   return (
-    <div className="grain-overlay-wrap relative flex min-h-screen flex-col">
+    <div className="relative flex min-h-screen flex-col">
       <div className="grain-overlay" aria-hidden />
       <PublicNav />
 
