@@ -11,6 +11,10 @@ interface FamilyTreeProps {
   people: Person[];
   focusId: PersonId;
   onFocusChange?: (id: PersonId) => void;
+  /** Visual zoom. Applied to the cards only — the connector overlay stays in
+   * unzoomed space so measured rects and drawn paths share one coordinate
+   * system at every zoom level. */
+  zoom?: number;
 }
 
 interface Edge {
@@ -22,7 +26,7 @@ function sortKey(p: Person): number {
   return p.birthYear ?? 9999;
 }
 
-export function FamilyTree({ people, focusId, onFocusChange }: FamilyTreeProps) {
+export function FamilyTree({ people, focusId, onFocusChange, zoom = 1 }: FamilyTreeProps) {
   const byId = useMemo(
     () => new Map(people.map((p) => [p._id, p])),
     [people],
@@ -145,7 +149,7 @@ export function FamilyTree({ people, focusId, onFocusChange }: FamilyTreeProps) 
       window.removeEventListener("resize", measure);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [edges]);
+  }, [edges, zoom]);
 
   const toggleUp = (id: string) => {
     setUpOpen((prev) => {
@@ -267,7 +271,9 @@ export function FamilyTree({ people, focusId, onFocusChange }: FamilyTreeProps) 
           />
         ))}
       </svg>
-      <div className="relative z-10">{renderNode(focusId)}</div>
+      <div className="relative z-10" style={{ zoom }}>
+        {renderNode(focusId)}
+      </div>
     </div>
   );
 }
