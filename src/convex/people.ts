@@ -58,7 +58,7 @@ export const create = mutation({
     const imageUrl = args.imageStorageId
       ? ((await ctx.storage.getUrl(args.imageStorageId)) ?? undefined)
       : undefined;
-    return await ctx.db.insert("people", {
+    const newId = await ctx.db.insert("people", {
       ...args,
       name,
       fatherId,
@@ -66,6 +66,21 @@ export const create = mutation({
       partnerId,
       imageUrl,
     });
+    // Partnerships are reciprocal: if a partner was named, bind them back to
+    // the new entry (displacing any prior partner they were joined to).
+    if (partnerId) {
+      const partner = await ctx.db.get(partnerId);
+      if (partner) {
+        if (partner.partnerId) {
+          const displaced = await ctx.db.get(partner.partnerId);
+          if (displaced && displaced.partnerId === partnerId) {
+            await ctx.db.patch(displaced._id, { partnerId: undefined });
+          }
+        }
+        await ctx.db.patch(partnerId, { partnerId: newId });
+      }
+    }
+    return newId;
   },
 });
 
