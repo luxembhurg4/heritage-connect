@@ -3,7 +3,7 @@ import { useQuery } from "convex/react";
 import { ArrowLeft, Minus, Plus } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { FamilyTree } from "@/components/tree/FamilyTree";
-import { OrnamentRule, PublicNav } from "@/components/branding";
+import { PublicNav } from "@/components/branding";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -38,7 +38,6 @@ export default function FamilyTreePage() {
   const [focusId, setFocusId] = useState<Id<"people"> | null>(null);
   const [zoom, setZoom] = useState(1);
 
-  // Choose an initial anchor once entries arrive.
   useEffect(() => {
     if (people && people.length > 0 && !focusId) {
       setFocusId(pickRoot(people)._id);
@@ -53,23 +52,34 @@ export default function FamilyTreePage() {
     [people],
   );
 
-  return (
-    <div className="relative flex min-h-screen flex-col">
-      <div className="grain-overlay" aria-hidden />
-      <PublicNav />
-
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-10">
-        {family === undefined ? (
-          <p className="py-24 text-center text-sm italic text-muted-foreground">
+  /* ---------------------------------------------------------------
+   * Loading / 404 states
+   * ------------------------------------------------------------- */
+  if (family === undefined) {
+    return (
+      <div className="relative flex h-screen flex-col bg-background">
+        <div className="grain-overlay" aria-hidden />
+        <PublicNav />
+        <div className="flex flex-1 items-center justify-center">
+          <p className="text-sm italic text-muted-foreground">
             Consulting the shelves…
           </p>
-        ) : family === null ? (
-          <div className="frame-archive mx-auto max-w-md rounded-sm bg-card p-10 text-center">
+        </div>
+      </div>
+    );
+  }
+
+  if (family === null) {
+    return (
+      <div className="relative flex h-screen flex-col bg-background">
+        <div className="grain-overlay" aria-hidden />
+        <PublicNav />
+        <div className="flex flex-1 items-center justify-center">
+          <div className="frame-archive max-w-md rounded-sm bg-card p-10 text-center">
             <h1 className="font-serif text-2xl font-semibold">
               Register not found
             </h1>
-            <OrnamentRule className="my-5" />
-            <p className="text-sm italic text-muted-foreground">
+            <p className="mt-3 text-sm italic text-muted-foreground">
               No family archive answers to that name.
             </p>
             <Button asChild variant="outline" className="mt-6 gap-2">
@@ -78,125 +88,125 @@ export default function FamilyTreePage() {
               </Link>
             </Button>
           </div>
-        ) : (
-          <>
-            {/* Register heading */}
-            <header className="mb-6 text-center">
-              <Link
-                to="/families"
-                className="label-archival inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-primary"
-              >
-                <ArrowLeft className="size-3.5" /> The Archive
-              </Link>
-              <h1 className="mt-3 font-serif text-3xl font-bold tracking-tight sm:text-4xl">
-                {family.name}
-              </h1>
-              {family.description && (
-                <p className="mx-auto mt-2 max-w-xl text-sm italic leading-relaxed text-muted-foreground">
-                  {family.description}
-                </p>
-              )}
-              <OrnamentRule className="mt-5" />
-            </header>
+        </div>
+      </div>
+    );
+  }
 
-            {people !== undefined && people.length === 0 ? (
-              <div className="frame-archive mx-auto max-w-md rounded-sm bg-card p-10 text-center">
-                <h2 className="font-serif text-xl font-semibold">
-                  An empty ledger
-                </h2>
-                <p className="mt-3 text-sm italic leading-relaxed text-muted-foreground">
-                  This register awaits its first entries. Sign in as its curator
-                  to begin the record.
-                </p>
-                <Button asChild className="mt-6 label-archival">
-                  <Link to="/auth?returnTo=%2Fdashboard">To the Curator's Desk</Link>
-                </Button>
-              </div>
-            ) : (
-              <>
-                {/* Toolbar */}
-                <div className="mb-4 flex flex-col items-center justify-between gap-3 sm:flex-row">
-                  <div className="flex items-center gap-2">
-                    <span className="label-archival text-muted-foreground">
-                      Centre upon
-                    </span>
-                    <Select
-                      value={focusId ?? ""}
-                      onValueChange={(v) => setFocusId(v as Id<"people">)}
-                    >
-                      <SelectTrigger className="w-56 font-serif">
-                        <SelectValue placeholder="Choose a soul…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {sorted.map((p) => (
-                          <SelectItem key={p._id} value={p._id}>
-                            {p.name}
-                            {p.birthYear ? ` (${p.birthYear})` : ""}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+  const hasPeople = people && people.length > 0;
 
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-1 rounded-sm border border-border bg-card p-0.5">
-                      <button
-                        type="button"
-                        title="Draw nigh"
-                        onClick={() => setZoom((z) => Math.min(1.5, z + 0.15))}
-                        className="rounded-sm p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                      >
-                        <Plus className="size-4" />
-                      </button>
-                      <span className="w-10 text-center text-[11px] tabular-nums text-muted-foreground">
-                        {Math.round(zoom * 100)}%
-                      </span>
-                      <button
-                        type="button"
-                        title="Step back"
-                        onClick={() => setZoom((z) => Math.max(0.5, z - 0.15))}
-                        className="rounded-sm p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                      >
-                        <Minus className="size-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
+  return (
+    <div className="relative flex h-screen flex-col bg-background">
+      <div className="grain-overlay" aria-hidden />
+      <PublicNav />
 
-                {/* Legend */}
-                <p className="mb-4 text-center text-xs italic text-muted-foreground">
-                  ❧ joined partners · ▲ unfold lineage · ▼ unfold posterity ·
-                  siblings share a bough · select a card to re-centre
-                </p>
+      {/* ── Top Ribbon ───────────────────────────────────────── */}
+      <header className="shrink-0 border-b border-border/60 bg-card/70 backdrop-blur-sm">
+        <div className="mx-auto flex w-full max-w-5xl items-center gap-4 px-4 py-4 sm:px-6">
+          <Link
+            to="/families"
+            className="shrink-0 rounded-sm p-1 text-muted-foreground transition-colors hover:text-primary"
+            title="Back to the archive"
+          >
+            <ArrowLeft className="size-5" />
+          </Link>
 
-                {/* Tree */}
-                {people === undefined || !focusId ? (
-                  <p className="py-20 text-center text-sm italic text-muted-foreground">
-                    Unrolling the pedigree…
-                  </p>
-                ) : (
-                  <div className="frame-archive relative max-h-[68vh] overflow-auto rounded-sm bg-card/40 p-8">
-                    <div className="mx-auto w-fit min-w-max">
-                      <FamilyTree
-                        people={people}
-                        focusId={focusId}
-                        onFocusChange={setFocusId}
-                        zoom={zoom}
-                      />
-                    </div>
-                  </div>
-                )}
-              </>
+          <div className="min-w-0 text-center sm:text-left">
+            <h1 className="font-serif text-xl font-bold tracking-tight sm:text-2xl">
+              {family.name}
+            </h1>
+            {family.description && (
+              <p className="mt-0.5 line-clamp-2 text-xs italic leading-relaxed text-muted-foreground">
+                {family.description}
+              </p>
             )}
-          </>
-        )}
-      </main>
+          </div>
+        </div>
+      </header>
 
-      <footer className="border-t border-border/70 bg-card/50 py-6 text-center">
-        <p className="text-xs italic text-muted-foreground">
-          Preserved in The Kinship Register
-        </p>
-      </footer>
+      {/* ── Toolbar ─────────────────────────────────────────── */}
+      <div className="z-20 shrink-0 border-b border-border/40 bg-background/80 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-2 sm:px-6">
+          <div className="flex items-center gap-2">
+            <span className="label-archival text-muted-foreground">
+              Centre upon
+            </span>
+            <Select
+              value={focusId ?? ""}
+              onValueChange={(v) => setFocusId(v as Id<"people">)}
+            >
+              <SelectTrigger className="w-52 font-serif">
+                <SelectValue placeholder="Choose a soul…" />
+              </SelectTrigger>
+              <SelectContent>
+                {sorted.map((p) => (
+                  <SelectItem key={p._id} value={p._id}>
+                    {p.name}
+                    {p.birthYear ? ` (${p.birthYear})` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <p className="hidden text-[10px] italic text-muted-foreground md:block">
+              ❧ joined · ▲ lineage · ▼ posterity · click to re-centre
+            </p>
+            <div className="flex items-center gap-0.5 rounded-sm border border-border bg-card p-0.5">
+              <button
+                type="button"
+                title="Draw nigh"
+                onClick={() => setZoom((z) => Math.min(1.5, z + 0.15))}
+                className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                <Plus className="size-4" />
+              </button>
+              <span className="w-10 text-center text-[11px] tabular-nums text-muted-foreground">
+                {Math.round(zoom * 100)}%
+              </span>
+              <button
+                type="button"
+                title="Step back"
+                onClick={() => setZoom((z) => Math.max(0.5, z - 0.15))}
+                className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                <Minus className="size-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Tree Canvas (fills remaining viewport) ─────────── */}
+      <div className="relative flex-1 overflow-auto bg-card/30">
+        {!hasPeople || !focusId ? (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-sm italic text-muted-foreground">
+              {hasPeople
+                ? "Select a soul to centre the tree."
+                : "This register awaits its first entries. "}
+              {hasPeople ? null : (
+                <Link
+                  to="/auth?returnTo=%2Fdashboard"
+                  className="underline underline-offset-2 hover:text-primary"
+                >
+                  To the Curator's Desk →
+                </Link>
+              )}
+            </p>
+          </div>
+        ) : (
+          <div className="mx-auto w-fit min-w-max px-8 py-12">
+            <FamilyTree
+              people={people}
+              focusId={focusId}
+              onFocusChange={setFocusId}
+              zoom={zoom}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
