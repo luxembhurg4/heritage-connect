@@ -1,8 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 type Person = Doc<"people">;
 type PersonId = Id<"people">;
@@ -11,360 +10,364 @@ interface FamilyTreeProps {
   people: Person[];
   focusId: PersonId;
   onFocusChange?: (id: PersonId) => void;
-  /** Visual zoom. Applied to the cards only — the connector overlay stays in
-   * unzoomed space so measured rects and drawn paths share one coordinate
-   * system at every zoom level. */
   zoom?: number;
 }
 
-interface Edge {
-  from: PersonId;
-  to: PersonId;
-}
+/* ── helpers ─────────────────────────────────────────────────────── */
 
 function sortKey(p: Person): number {
   return p.birthYear ?? 9999;
 }
 
-export function FamilyTree({ people, focusId, onFocusChange, zoom = 1 }: FamilyTreeProps) {
+const DEPTH_COLORS = [
+  "border-primary/20",
+  "border-accent/25",
+  "border-primary/15",
+  "border-accent/20",
+  "border-primary/12",
+  "border-accent/15",
+  "border-primary/10",
+];
+
+const DEPTH_BG = [
+  "bg-card/50",
+  "bg-card/35",
+  "bg-card/25",
+  "bg-card/15",
+  "bg-card/10",
+  "bg-card/8",
+  "bg-card/5",
+];
+
+/* ── main component ──────────────────────────────────────────────── */
+
+export function FamilyTree({
+  people,
+  focusId,
+  onFocusChange,
+  zoom = 1,
+}: FamilyTreeProps) {
   const byId = useMemo(
     () => new Map(people.map((p) => [p._id, p])),
     [people],
   );
 
-  const [upOpen, setUpOpen] = useState<Set<string>>(() => new Set([focusId]));
-  const [downOpen, setDownOpen] = useState<Set<string>>(
-    () => new Set([focusId]),
-  );
+  /** Which child-chips are expanded (by their person ID). Per-level accordion. */
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // Re-center expansions whenever a new focus person is chosen.
+  // Auto-expand: when focus changes, open up to 3 levels of descendants
   useEffect(() => {
-    setUpOpen(new Set([focusId]));
-    setDownOpen(new Set([focusId]));
-  }, [focusId]);
+    const auto = new Set<string>();
+    let levels = 3;
+    const queue: PersonId[] = [focusId];
+    while (queue.length > 0 && levels > 0) {
+      const next: PersonId[] = [];
+      for (const pid of queue) {
+        const p = byId.get(pid);
+        if (!p) continue;
+        const kids = childrenOf(pid);
+        for (const kid of kids) {
+          auto.add(kid._id);
+          next.push(kid._id);
+        }
+      }
+      queue.length = 0;
+      queue.push(...next);
+      levels--;
+    }
+    setExpanded(auto);
+  }, [focusId, byId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const partnerOf = (p?: Person): Person | undefined => {
-    if (!p) return undefined;
+  // Reset expansion on new focus
+  const toggleExpand = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // ── query helpers ────────────────────────────────────────────────
+
+  const partnerOf = (p: Person): Person | undefined => {
     if (p.partnerId) {
       const direct = byId.get(p.partnerId);
       if (direct) return direct;
     }
-    // Defensive: if a legacy bond is one-sided (the partner names this person
-    // but not vice versa), still draw the couple instead of hiding the spouse.
+    // Defensive reverse-lookup for legacy one-sided bonds
     return people.find((q) => q.partnerId === p._id);
   };
 
-  const parentsOfCouple = (a?: Person, b?: Person): Person[] => {
+  const childrenOf = (id: PersonId): Person[] => {
+    return people
+      .filter((c) => c.fatherId === id || c.motherId === id)
+      .sort((a, b) => sortKey(a) - sortKey(b));
+  };
+
+  /** All parents of a person (from both partners' links). */
+  const parentsOf = (id: PersonId): Person[] => {
+    const person = byId.get(id);
+    if (!person) return [];
+    const partner = partnerOf(person);
     const ids = new Set<string>();
-    for (const member of [a, b]) {
+    for (const member of [person, partner]) {
       if (member?.fatherId) ids.add(member.fatherId);
       if (member?.motherId) ids.add(member.motherId);
     }
     return [...ids]
-      .map((id) => byId.get(id as PersonId))
+      .map((i) => byId.get(i as PersonId))
       .filter((p): p is Person => Boolean(p))
-      .sort((x, y) => sortKey(x) - sortKey(y));
+      .sort((a, b) => sortKey(a) - sortKey(b));
   };
 
-  const childrenOfCouple = (a?: Person, b?: Person): Person[] => {
-    const found = new Map<PersonId, Person>();
-    for (const member of [a, b]) {
-      if (!member) continue;
-      for (const child of people) {
-        if (child.fatherId === member._id || child.motherId === member._id) {
-          found.set(child._id, child);
-        }
-      }
-    }
-    return [...found.values()].sort((x, y) => sortKey(x) - sortKey(y));
-  };
+  // ── render ───────────────────────────────────────────────────────
 
-  // Pure view graph derived from expansion state — nodes + visible edges.
-  const { edges } = useMemo(() => {
-    const visited = new Set<string>();
-    const collectedEdges: Edge[] = [];
-    const walk = (id: PersonId) => {
-      if (visited.has(id)) return;
-      visited.add(id);
-      const person = byId.get(id);
-      if (!person) return;
-      const partner = partnerOf(person);
-      if (upOpen.has(id)) {
-        for (const parent of parentsOfCouple(person, partner)) {
-          collectedEdges.push({ from: parent._id, to: id });
-          walk(parent._id);
-        }
-      }
-      if (downOpen.has(id)) {
-        for (const child of childrenOfCouple(person, partner)) {
-          collectedEdges.push({ from: id, to: child._id });
-          walk(child._id);
-        }
-      }
-    };
-    walk(focusId);
-    return { edges: collectedEdges };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [byId, focusId, upOpen, downOpen]);
+  const focus = byId.get(focusId);
+  if (!focus) return null;
 
-  // ---- Measured SVG connectors -------------------------------------------
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [paths, setPaths] = useState<string[]>([]);
+  const focusPartner = partnerOf(focus);
+  const focusParents = parentsOf(focusId);
 
-  const measure = () => {
-    const root = containerRef.current;
-    if (!root) return;
-    const rootRect = root.getBoundingClientRect();
-    const next: string[] = [];
-    for (const edge of edges) {
-      const fromEl = root.querySelector<HTMLElement>(
-        `[data-node="${edge.from}"]`,
-      );
-      const toEl = root.querySelector<HTMLElement>(`[data-node="${edge.to}"]`);
-      if (!fromEl || !toEl) continue;
-      const fr = fromEl.getBoundingClientRect();
-      const tr = toEl.getBoundingClientRect();
-      const x1 = fr.left + fr.width / 2 - rootRect.left;
-      const y1 = fr.bottom - rootRect.top;
-      const x2 = tr.left + tr.width / 2 - rootRect.left;
-      const y2 = tr.top - rootRect.top;
-      const midY = (y1 + y2) / 2;
-      next.push(`M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`);
-    }
-    setPaths(next);
-  };
-
-  useLayoutEffect(() => {
-    let raf2 = 0;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(measure);
-    });
-    if (typeof document !== "undefined" && "fonts" in document) {
-      document.fonts.ready.then(() => measure()).catch(() => {});
-    }
-    window.addEventListener("resize", measure);
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-      window.removeEventListener("resize", measure);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [edges, zoom]);
-
-  const toggleUp = (id: string) => {
-    setUpOpen((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-  const toggleDown = (id: string) => {
-    setDownOpen((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  // Guards the render pass against cycles in the data (bad relationships
-  // must never hang the page). Fresh per render, so re-renders stay correct.
-  const renderSeen = new Set<string>();
-
-  const renderNode = (id: PersonId): ReactNode => {
-    if (renderSeen.has(id)) return null;
-    renderSeen.add(id);
-    const person = byId.get(id);
-    if (!person) return null;
-    const partner = partnerOf(person);
-
-    const allParents = parentsOfCouple(person, partner);
-    const allChildren = childrenOfCouple(person, partner);
-    const showParents = upOpen.has(id);
-    const showChildren = downOpen.has(id);
-    const parents = showParents ? allParents : null;
-    const children = showChildren ? allChildren : null;
-
-    return (
-      <div className="flex flex-col items-center">
-        {/* Older generations above */}
-        {parents ? (
-          <div className="flex items-start justify-center gap-x-8 pb-10 sm:gap-x-12">
-            {parents.map((p) => (
-              <div key={p._id}>{renderNode(p._id)}</div>
-            ))}
-          </div>
-        ) : allParents.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => toggleUp(id)}
-            className="label-archival mb-9 flex items-center gap-1.5 rounded-full border border-dashed border-border bg-card/70 px-3 py-1 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-          >
-            <ChevronUp className="size-3" />
-            Lineage · {allParents.length}
-          </button>
-        ) : (
-          <div
-            aria-hidden
-            className="mb-9 text-[10px] tracking-[0.35em] text-muted-foreground/40"
-          >
-            ···
-          </div>
-        )}
-
-        <PersonCluster
-          person={person}
-          partner={partner}
-          focusId={focusId}
-          onSelect={onFocusChange}
-          onFoldUp={
-            showParents && allParents.length > 0 ? () => toggleUp(id) : undefined
-          }
-          onFoldDown={
-            showChildren && allChildren.length > 0
-              ? () => toggleDown(id)
-              : undefined
-          }
-        />
-
-        {/* Newer generations below */}
-        {children ? (
-          <div className="flex items-start justify-center pt-10">
-            {children.map((c) => (
-              <div key={c._id} className="px-3">
-                {renderNode(c._id)}
+  return (
+    <div
+      className="flex flex-col items-center gap-0 overflow-auto px-4 py-8 sm:px-8"
+      style={{ zoom, transformOrigin: "top center" }}
+    >
+      {/* ── Ancestor chain (breadcrumb) ── */}
+      {focusParents.length > 0 && (
+        <div className="mb-6 flex flex-col items-center gap-2">
+          <span className="label-archival text-[10px] tracking-[0.3em] text-muted-foreground/50">
+            PARENTAGE
+          </span>
+          <div className="flex items-center gap-2">
+            {focusParents.map((parent, i) => (
+              <div key={parent._id} className="flex items-center gap-2">
+                {i > 0 && (
+                  <span className="text-muted-foreground/30">·</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onFocusChange?.(parent._id)}
+                  className="group/anc flex items-center gap-1.5 rounded-sm border border-dashed border-border bg-card/50 px-3 py-1.5 text-muted-foreground transition-all hover:border-primary/50 hover:text-primary hover:shadow-sm"
+                >
+                  <span className="text-[10px]">▲</span>
+                  <span className="font-serif text-xs font-semibold">
+                    {parent.name}
+                  </span>
+                  {parent.birthYear && (
+                    <span className="text-[10px] italic text-muted-foreground/60">
+                      {parent.birthYear}
+                    </span>
+                  )}
+                </button>
               </div>
             ))}
           </div>
-        ) : allChildren.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => toggleDown(id)}
-            className="label-archival mt-9 flex items-center gap-1.5 rounded-full border border-dashed border-border bg-card/70 px-3 py-1 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-          >
-            <ChevronDown className="size-3" />
-            Posterity · {allChildren.length}
-          </button>
-        ) : (
-          <div aria-hidden className="mt-9 h-6" />
-        )}
-      </div>
-    );
-  };
+          <div className="flex items-center gap-1 text-muted-foreground/25">
+            <div className="h-4 w-px bg-current" />
+          </div>
+        </div>
+      )}
 
-  return (
-    <div ref={containerRef} className="relative">
-      <svg
-        className="pointer-events-none absolute inset-0 z-0 h-full w-full overflow-visible"
-        aria-hidden
-      >
-        {paths.map((d, i) => (
-          <path
-            key={`${d}-${i}`}
-            d={d}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.25}
-            strokeLinejoin="round"
-            className="text-muted-foreground/55"
-          />
-        ))}
-      </svg>
-      <div className="relative z-10" style={{ zoom }}>
-        {renderNode(focusId)}
-      </div>
+      {/* ── Focus family bubble ── */}
+      <FamilyBubble
+        focus={focus}
+        partner={focusPartner}
+        childrenList={childrenOf(focusId)}
+        expanded={expanded}
+        onToggle={toggleExpand}
+        onSelect={onFocusChange}
+        byId={byId}
+        allPeople={people}
+        childrenOf={childrenOf}
+        partnerOf={partnerOf}
+        depth={0}
+      />
     </div>
   );
 }
 
-function PersonCluster({
-  person,
+/* ── FamilyBubble: one couple + their children ─────────────────── */
+
+function FamilyBubble({
+  focus,
   partner,
-  focusId,
+  childrenList,
+  expanded,
+  onToggle,
   onSelect,
-  onFoldUp,
-  onFoldDown,
+  byId,
+  allPeople,
+  childrenOf,
+  partnerOf,
+  depth,
 }: {
-  person: Person;
+  focus: Person;
   partner?: Person;
-  focusId: Id<"people">;
+  childrenList: Person[];
+  expanded: Set<string>;
+  onToggle: (id: string) => void;
   onSelect?: (id: PersonId) => void;
-  onFoldUp?: () => void;
-  onFoldDown?: () => void;
+  byId: Map<string, Person>;
+  allPeople: Person[];
+  childrenOf: (id: PersonId) => Person[];
+  partnerOf: (p: Person) => Person | undefined;
+  depth: number;
 }) {
+  const colorClass = DEPTH_COLORS[Math.min(depth, DEPTH_COLORS.length - 1)];
+  const bgClass = DEPTH_BG[Math.min(depth, DEPTH_BG.length - 1)];
+
   return (
     <div
-      data-node={person._id}
-      className="group/node relative z-10 flex items-stretch justify-center gap-1"
+      className={cn(
+        "flex flex-col rounded-lg border px-4 py-3 shadow-[0_1px_3px_rgba(60,40,20,0.1)] sm:px-5 sm:py-4",
+        colorClass,
+        bgClass,
+      )}
     >
-      {(person._id === focusId || partner?._id === focusId) && (
-        <span className="absolute -top-7 left-1/2 -translate-x-1/2 rounded-sm bg-secondary px-2 py-0.5 text-[10px] italic text-secondary-foreground shadow-sm">
-          in view
-        </span>
-      )}
-      {onFoldUp && (
-        <button
-          type="button"
-          title="Fold lineage"
-          onClick={(e) => {
-            e.stopPropagation();
-            onFoldUp();
-          }}
-          className="absolute -top-2.5 left-1/2 z-20 flex size-5 -translate-x-1/2 items-center justify-center rounded-full border border-border bg-card text-muted-foreground opacity-0 shadow-sm transition-all hover:border-primary/50 hover:text-primary group-hover/node:opacity-100"
-        >
-          <ChevronUp className="size-3" />
-        </button>
-      )}
-      {onFoldDown && (
-        <button
-          type="button"
-          title="Fold posterity"
-          onClick={(e) => {
-            e.stopPropagation();
-            onFoldDown();
-          }}
-          className="absolute -bottom-2.5 left-1/2 z-20 flex size-5 -translate-x-1/2 items-center justify-center rounded-full border border-border bg-card text-muted-foreground opacity-0 shadow-sm transition-all hover:border-primary/50 hover:text-primary group-hover/node:opacity-100"
-        >
-          <ChevronDown className="size-3" />
-        </button>
-      )}
+      {/* ── Couple row ── */}
+      <div className="flex items-center justify-center gap-2">
+        <PersonCard
+          person={focus}
+          onSelect={() => onSelect?.(focus._id)}
+          compact={depth > 0}
+        />
+        {partner && (
+          <>
+            <span className="select-none text-sm text-accent/70" title="Joined">
+              ❧
+            </span>
+            <PersonCard
+              person={partner}
+              onSelect={() => onSelect?.(partner._id)}
+              compact={depth > 0}
+            />
+          </>
+        )}
+      </div>
 
-      <PersonCard
-        person={person}
-        highlighted={person._id === focusId}
-        onSelect={() => onSelect?.(person._id)}
- />
-      {partner && (
-        <>
-          <div
-            aria-hidden
-            className="flex select-none items-center px-0.5 text-accent"
-            title="Joined"
-          >
-            ❧
+      {/* ── Children chips + nested bubbles ── */}
+      {childrenList.length > 0 && (
+        <div className="mt-3">
+          {/* Small divider */}
+          <div className="mx-auto mb-3 flex items-center gap-2">
+            <div className="h-px flex-1 bg-border/50" />
+            <span className="label-archival text-[9px] tracking-[0.25em] text-muted-foreground/40">
+              ISSUE · {childrenList.length}
+            </span>
+            <div className="h-px flex-1 bg-border/50" />
           </div>
-          <PersonCard
-            person={partner}
-            highlighted={partner._id === focusId}
-            onSelect={() => onSelect?.(partner._id)}
-          />
-        </>
+
+          <div className="flex flex-col gap-2.5">
+            {childrenList.map((child) => {
+              const isExpanded = expanded.has(child._id);
+              const hasKids = hasDescendantsById(child._id, allPeople);
+
+              return (
+                <div key={child._id} className="flex flex-col items-center">
+                  {/* Child chip */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (hasKids) onToggle(child._id);
+                      onSelect?.(child._id);
+                    }}
+                    className={cn(
+                      "group/chip relative flex items-center gap-1.5 rounded-sm border px-3 py-1.5 transition-all duration-200",
+                      hasKids
+                        ? "cursor-pointer border-dashed border-border bg-card/60 hover:border-primary/50 hover:bg-card hover:shadow-sm"
+                        : "cursor-pointer border-transparent bg-card/40 hover:border-border hover:bg-card/60",
+                    )}
+                  >
+                    {/* Photo or initial */}
+                    {child.imageUrl ? (
+                      <img
+                        src={child.imageUrl}
+                        alt={child.name}
+                        className="size-5 shrink-0 rounded-full border border-border object-cover"
+                      />
+                    ) : (
+                      <span
+                        className={cn(
+                          "flex size-5 shrink-0 items-center justify-center rounded-full border text-[9px] font-bold",
+                          child.sex === "female"
+                            ? "border-accent/40 bg-secondary text-accent-foreground"
+                            : "border-primary/30 bg-secondary text-primary",
+                        )}
+                      >
+                        {child.name.charAt(0)}
+                      </span>
+                    )}
+
+                    <span className="font-serif text-xs font-semibold leading-tight">
+                      {child.name.length > 18
+                        ? child.name.slice(0, 16) + "…"
+                        : child.name}
+                    </span>
+
+                    {child.birthYear && (
+                      <span className="text-[10px] italic text-muted-foreground/50">
+                        {child.birthYear}
+                      </span>
+                    )}
+
+                    {/* Expand indicator */}
+                    {hasKids && (
+                      <span className="ml-0.5 text-muted-foreground/40 transition-transform group-hover/chip:text-primary/60">
+                        {isExpanded ? (
+                          <ChevronDown className="size-3" />
+                        ) : (
+                          <ChevronRight className="size-3" />
+                        )}
+                      </span>
+                    )}
+                  </button>
+
+                  {/* ── Nested family bubble (child's descendants) ── */}
+                  {isExpanded && hasKids && (
+                    <div className="mt-2 w-full pl-4 sm:pl-6">
+                      <FamilyBubble
+                        focus={child}
+                        partner={partnerOf(child)}
+                        childrenList={childrenOf(child._id)}
+                        expanded={expanded}
+                        onToggle={onToggle}
+                        onSelect={onSelect}
+                        byId={byId}
+                        allPeople={allPeople}
+                        childrenOf={childrenOf}
+                        partnerOf={partnerOf}
+                        depth={depth + 1}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
     </div>
   );
 }
+
+function hasDescendantsById(id: PersonId, allPeople: Person[]): boolean {
+  return allPeople.some((c) => c.fatherId === id || c.motherId === id);
+}
+
+/* ── PersonCard ───────────────────────────────────────────────── */
 
 function PersonCard({
   person,
-  highlighted,
   onSelect,
+  compact = false,
 }: {
   person: Person;
-  highlighted: boolean;
   onSelect: () => void;
+  compact?: boolean;
 }) {
-  let years = "Dates unknown";
+  let years = "";
   if (person.birthYear && person.deathYear) {
     years = `${person.birthYear} – ${person.deathYear}`;
   } else if (person.birthYear) {
@@ -376,41 +379,60 @@ function PersonCard({
   return (
     <button
       type="button"
-      onClick={onSelect}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect();
+      }}
       title={person.name}
       className={cn(
-        "w-36 cursor-pointer rounded-sm border bg-card px-2.5 py-2 text-left shadow-[0_1px_2px_rgba(60,40,20,0.18)] transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md sm:w-40",
-        highlighted ? "border-primary ring-1 ring-primary/45" : "border-border",
+        "group/card flex items-center gap-2 rounded-sm border bg-card shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md",
+        compact
+          ? "w-auto max-w-[180px] border-border/60 px-2 py-1.5"
+          : "w-40 border-border px-2.5 py-2 sm:w-44",
       )}
     >
-      <div className="flex items-center gap-2">
-        {person.imageUrl ? (
-          <img
-            src={person.imageUrl}
-            alt={person.name}
-            className="size-7 shrink-0 rounded-full border border-border object-cover"
-          />
-        ) : (
+      {person.imageUrl ? (
+        <img
+          src={person.imageUrl}
+          alt={person.name}
+          className={cn(
+            "shrink-0 rounded-full border border-border object-cover",
+            compact ? "size-6" : "size-8",
+          )}
+        />
+      ) : (
+        <span
+          className={cn(
+            "flex shrink-0 items-center justify-center rounded-full border font-serif font-bold",
+            compact ? "size-6 text-[10px]" : "size-8 text-xs",
+            person.sex === "female"
+              ? "border-accent bg-secondary text-accent-foreground"
+              : "border-primary/50 bg-secondary text-primary",
+          )}
+        >
+          {person.name.trim().charAt(0).toUpperCase()}
+        </span>
+      )}
+      <span className="min-w-0 text-left">
+        <span
+          className={cn(
+            "block truncate font-serif font-semibold leading-tight",
+            compact ? "text-[11px]" : "text-[13px]",
+          )}
+        >
+          {person.name}
+        </span>
+        {years && (
           <span
             className={cn(
-              "flex size-7 shrink-0 items-center justify-center rounded-full border font-serif text-xs font-bold",
-              person.sex === "female"
-                ? "border-accent bg-secondary text-accent-foreground"
-                : "border-primary/50 bg-secondary text-primary",
+              "block truncate italic leading-tight text-muted-foreground",
+              compact ? "text-[9px]" : "text-[11px]",
             )}
           >
-            {person.name.trim().charAt(0).toUpperCase()}
-          </span>
-        )}
-        <span className="min-w-0">
-          <span className="block truncate font-serif text-[13px] font-semibold leading-tight">
-            {person.name}
-          </span>
-          <span className="block truncate text-[11px] italic leading-tight text-muted-foreground">
             {years}
           </span>
-        </span>
-      </div>
+        )}
+      </span>
     </button>
   );
 }

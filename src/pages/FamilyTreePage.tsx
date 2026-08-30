@@ -151,7 +151,7 @@ export default function FamilyTreePage() {
 
           <div className="flex items-center gap-3">
             <p className="hidden text-[10px] italic text-muted-foreground md:block">
-              ❧ joined · ▲ lineage · ▼ posterity · click to re-centre
+              ❧ joined · click a name to re-centre · click a child to expand their family
             </p>
             <div className="flex items-center gap-0.5 rounded-sm border border-border bg-card p-0.5">
               <button
