@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -13,128 +13,70 @@ interface FamilyTreeProps {
   zoom?: number;
 }
 
-/* ── helpers ─────────────────────────────────────────────────────── */
-
 function sortKey(p: Person): number {
   return p.birthYear ?? 9999;
 }
 
-const DEPTH_COLORS = [
-  "border-primary/20",
-  "border-accent/25",
-  "border-primary/15",
-  "border-accent/20",
-  "border-primary/12",
-  "border-accent/15",
-  "border-primary/10",
-];
+const SIBLING_COMPACT = 7;
 
-const DEPTH_BG = [
-  "bg-card/50",
-  "bg-card/35",
-  "bg-card/25",
-  "bg-card/15",
-  "bg-card/10",
-  "bg-card/8",
-  "bg-card/5",
-];
-
-/* ── main component ──────────────────────────────────────────────── */
+function isCompact(peopleCount: number): boolean {
+  return peopleCount > SIBLING_COMPACT;
+}
 
 export function FamilyTree({
   people,
   focusId,
   onFocusChange,
-  zoom = 1,
 }: FamilyTreeProps) {
   const byId = useMemo(
     () => new Map(people.map((p) => [p._id, p])),
     [people],
   );
 
-  /** Which child-chips are expanded (by their person ID). Per-level accordion. */
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // Auto-expand: when focus changes, open up to 3 levels of descendants
+  // Auto-expand up to 2 generations from the focus person.
   useEffect(() => {
     const auto = new Set<string>();
-    let levels = 3;
-    const queue: PersonId[] = [focusId];
-    while (queue.length > 0 && levels > 0) {
+    let depth = 2;
+    let queue: PersonId[] = [focusId];
+    while (queue.length > 0 && depth > 0) {
       const next: PersonId[] = [];
       for (const pid of queue) {
         const p = byId.get(pid);
         if (!p) continue;
-        const kids = childrenOf(pid);
+        const kids = childrenOf(pid, byId, people);
         for (const kid of kids) {
           auto.add(kid._id);
           next.push(kid._id);
         }
       }
-      queue.length = 0;
-      queue.push(...next);
-      levels--;
+      queue = next;
+      depth--;
     }
     setExpanded(auto);
   }, [focusId, byId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reset expansion on new focus
-  const toggleExpand = (id: string) => {
+  const toggleExpand = useCallback((id: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
-
-  // ── query helpers ────────────────────────────────────────────────
-
-  const partnerOf = (p: Person): Person | undefined => {
-    if (p.partnerId) {
-      const direct = byId.get(p.partnerId);
-      if (direct) return direct;
-    }
-    // Defensive reverse-lookup for legacy one-sided bonds
-    return people.find((q) => q.partnerId === p._id);
-  };
-
-  const childrenOf = (id: PersonId): Person[] => {
-    return people
-      .filter((c) => c.fatherId === id || c.motherId === id)
-      .sort((a, b) => sortKey(a) - sortKey(b));
-  };
-
-  /** All parents of a person (from both partners' links). */
-  const parentsOf = (id: PersonId): Person[] => {
-    const person = byId.get(id);
-    if (!person) return [];
-    const partner = partnerOf(person);
-    const ids = new Set<string>();
-    for (const member of [person, partner]) {
-      if (member?.fatherId) ids.add(member.fatherId);
-      if (member?.motherId) ids.add(member.motherId);
-    }
-    return [...ids]
-      .map((i) => byId.get(i as PersonId))
-      .filter((p): p is Person => Boolean(p))
-      .sort((a, b) => sortKey(a) - sortKey(b));
-  };
-
-  // ── render ───────────────────────────────────────────────────────
+  }, []);
 
   const focus = byId.get(focusId);
   if (!focus) return null;
 
-  const focusPartner = partnerOf(focus);
-  const focusParents = parentsOf(focusId);
+  const focusPartner = partnerOf(focus._id, byId, people);
+  const focusParents = parentsOf(focus._id, byId, people);
+  const focusChildren = childrenOf(focusId, byId, people);
+  const siblingCount = siblingCountOf(focusId, byId, people);
 
   return (
-    <div
-      className="flex flex-col items-center gap-0 overflow-auto px-4 py-8 sm:px-8"
-      style={{ zoom, transformOrigin: "top center" }}
-    >
-      {/* ── Ancestor chain (breadcrumb) ── */}
+    <div className="flex flex-col items-center gap-0 overflow-auto px-4 py-8 sm:px-8">
+      {/* Ancestor breadcrumb */}
       {focusParents.length > 0 && (
         <div className="mb-6 flex flex-col items-center gap-2">
           <span className="label-archival text-[10px] tracking-[0.3em] text-muted-foreground/50">
@@ -164,94 +106,90 @@ export function FamilyTree({
               </div>
             ))}
           </div>
-          <div className="flex items-center gap-1 text-muted-foreground/25">
-            <div className="h-4 w-px bg-current" />
-          </div>
         </div>
       )}
 
-      {/* ── Focus family bubble ── */}
-      <FamilyBubble
-        focus={focus}
-        partner={focusPartner}
-        childrenList={childrenOf(focusId)}
+      {/* Sibling count chip */}
+      {siblingCount > 0 && (
+        <div className="mb-3 flex items-center gap-1.5 rounded-sm border border-dashed border-border bg-card/50 px-3 py-1 text-xs text-muted-foreground/70">
+          <span className="label-archival text-[9px]">SIBLINGS</span>
+          <span>{siblingCount}</span>
+        </div>
+      )}
+
+      {/* Focus family hub */}
+      <FamilyHub
+        person={focus}
+        spouse={focusPartner}
+        parentIds={focusParents.map((p) => p._id)}
+        childrenList={focusChildren}
         expanded={expanded}
         onToggle={toggleExpand}
         onSelect={onFocusChange}
         byId={byId}
-        allPeople={people}
-        childrenOf={childrenOf}
-        partnerOf={partnerOf}
+        people={people}
         depth={0}
       />
     </div>
   );
 }
 
-/* ── FamilyBubble: one couple + their children ─────────────────── */
+/* ── FamilyHub ──────────────────────────────────────────────────── */
 
-function FamilyBubble({
-  focus,
-  partner,
+function FamilyHub({
+  person,
+  spouse,
+  parentIds,
   childrenList,
   expanded,
   onToggle,
   onSelect,
   byId,
-  allPeople,
-  childrenOf,
-  partnerOf,
+  people,
   depth,
 }: {
-  focus: Person;
-  partner?: Person;
+  person: Person;
+  spouse?: Person;
+  parentIds: PersonId[];
   childrenList: Person[];
   expanded: Set<string>;
   onToggle: (id: string) => void;
   onSelect?: (id: PersonId) => void;
   byId: Map<string, Person>;
-  allPeople: Person[];
-  childrenOf: (id: PersonId) => Person[];
-  partnerOf: (p: Person) => Person | undefined;
+  people: Person[];
   depth: number;
 }) {
-  const colorClass = DEPTH_COLORS[Math.min(depth, DEPTH_COLORS.length - 1)];
-  const bgClass = DEPTH_BG[Math.min(depth, DEPTH_BG.length - 1)];
+  const compactView = isCompact(childrenList.length);
+  const bigSiblingSet = isCompact(childrenList.length);
 
   return (
     <div
       className={cn(
         "flex flex-col rounded-lg border px-4 py-3 shadow-[0_1px_3px_rgba(60,40,20,0.1)] sm:px-5 sm:py-4",
-        colorClass,
-        bgClass,
+        depth === 0
+          ? "border-primary/20 bg-card/50"
+          : depth === 1
+          ? "border-accent/25 bg-card/35"
+          : "border-primary/12 bg-card/10",
       )}
     >
-      {/* ── Couple row ── */}
+      {/* Couple row */}
       <div className="flex items-center justify-center gap-2">
-        <PersonCard
-          person={focus}
-          onSelect={() => onSelect?.(focus._id)}
-          compact={depth > 0}
-        />
-        {partner && (
+        <PersonCard person={person} onSelect={() => onSelect?.(person._id)} compact={depth > 0} />
+        {spouse && (
           <>
             <span className="select-none text-sm text-accent/70" title="Joined">
               ❧
             </span>
-            <PersonCard
-              person={partner}
-              onSelect={() => onSelect?.(partner._id)}
-              compact={depth > 0}
-            />
+            <PersonCard person={spouse} onSelect={() => onSelect?.(spouse._id)} compact={depth > 0} />
           </>
         )}
       </div>
 
-      {/* ── Children chips + nested bubbles ── */}
+      {/* Children */}
       {childrenList.length > 0 && (
         <div className="mt-3">
-          {/* Small divider */}
-          <div className="mx-auto mb-3 flex items-center gap-2">
+          <div className="mx-auto mb-2 flex items-center gap-2">
             <div className="h-px flex-1 bg-border/50" />
             <span className="label-archival text-[9px] tracking-[0.25em] text-muted-foreground/40">
               ISSUE · {childrenList.length}
@@ -259,104 +197,181 @@ function FamilyBubble({
             <div className="h-px flex-1 bg-border/50" />
           </div>
 
-          <div className="flex flex-col gap-2.5">
-            {childrenList.map((child) => {
-              const isExpanded = expanded.has(child._id);
-              const hasKids = hasDescendantsById(child._id, allPeople);
-
-              return (
+          {bigSiblingSet ? (
+            /* Compact row for large sibling sets */
+            <div className="flex flex-wrap items-center justify-center gap-1.5">
+              {childrenList.map((child) => (
+                <CompactChildChip
+                  key={child._id}
+                  child={child}
+                  hasKids={hasDescendants(child._id, people)}
+                  isExpanded={expanded.has(child._id)}
+                  onToggle={() => onToggle(child._id)}
+                  onSelect={() => onSelect?.(child._id)}
+                  compact={depth > 0}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {childrenList.map((child) => (
                 <div key={child._id} className="flex flex-col items-center">
-                  {/* Child chip */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (hasKids) onToggle(child._id);
-                      onSelect?.(child._id);
-                    }}
-                    className={cn(
-                      "group/chip relative flex items-center gap-1.5 rounded-sm border px-3 py-1.5 transition-all duration-200",
-                      hasKids
-                        ? "cursor-pointer border-dashed border-border bg-card/60 hover:border-primary/50 hover:bg-card hover:shadow-sm"
-                        : "cursor-pointer border-transparent bg-card/40 hover:border-border hover:bg-card/60",
-                    )}
-                  >
-                    {/* Photo or initial */}
-                    {child.imageUrl ? (
-                      <img
-                        src={child.imageUrl}
-                        alt={child.name}
-                        className="size-5 shrink-0 rounded-full border border-border object-cover"
-                      />
-                    ) : (
-                      <span
-                        className={cn(
-                          "flex size-5 shrink-0 items-center justify-center rounded-full border text-[9px] font-bold",
-                          child.sex === "female"
-                            ? "border-accent/40 bg-secondary text-accent-foreground"
-                            : "border-primary/30 bg-secondary text-primary",
-                        )}
-                      >
-                        {child.name.charAt(0)}
-                      </span>
-                    )}
-
-                    <span className="font-serif text-xs font-semibold leading-tight">
-                      {child.name.length > 18
-                        ? child.name.slice(0, 16) + "…"
-                        : child.name}
-                    </span>
-
-                    {child.birthYear && (
-                      <span className="text-[10px] italic text-muted-foreground/50">
-                        {child.birthYear}
-                      </span>
-                    )}
-
-                    {/* Expand indicator */}
-                    {hasKids && (
-                      <span className="ml-0.5 text-muted-foreground/40 transition-transform group-hover/chip:text-primary/60">
-                        {isExpanded ? (
-                          <ChevronDown className="size-3" />
-                        ) : (
-                          <ChevronRight className="size-3" />
-                        )}
-                      </span>
-                    )}
-                  </button>
-
-                  {/* ── Nested family bubble (child's descendants) ── */}
-                  {isExpanded && hasKids && (
+                  <ChildChip
+                    child={child}
+                    hasKids={hasDescendants(child._id, people)}
+                    isExpanded={expanded.has(child._id)}
+                    onToggle={() => onToggle(child._id)}
+                    onSelect={() => onSelect?.(child._id)}
+                  />
+                  {expanded.has(child._id) && hasDescendants(child._id, people) && (
                     <div className="mt-2 w-full pl-4 sm:pl-6">
-                      <FamilyBubble
-                        focus={child}
-                        partner={partnerOf(child)}
-                        childrenList={childrenOf(child._id)}
+                      <FamilyHub
+                        person={child}
+                        spouse={partnerOf(child._id, byId, people)}
+                        parentIds={[child._id]}
+                        childrenList={childrenOf(child._id, byId, people)}
                         expanded={expanded}
                         onToggle={onToggle}
                         onSelect={onSelect}
                         byId={byId}
-                        allPeople={allPeople}
-                        childrenOf={childrenOf}
-                        partnerOf={partnerOf}
+                        people={people}
                         depth={depth + 1}
                       />
                     </div>
                   )}
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function hasDescendantsById(id: PersonId, allPeople: Person[]): boolean {
-  return allPeople.some((c) => c.fatherId === id || c.motherId === id);
+/* ── chips ──────────────────────────────────────────────────────── */
+
+function CompactChildChip({
+  child,
+  hasKids,
+  isExpanded,
+  onToggle,
+  onSelect,
+  compact,
+}: {
+  child: Person;
+  hasKids: boolean;
+  isExpanded: boolean;
+  onToggle: () => void;
+  onSelect: () => void;
+  compact: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (hasKids) onToggle();
+        onSelect();
+      }}
+      className={cn(
+        "group/chip relative flex items-center gap-1.5 rounded-sm border px-2 py-1 transition-all duration-200",
+        hasKids
+          ? "cursor-pointer border-dashed border-border bg-card/60 hover:border-primary/50 hover:bg-card hover:shadow-sm"
+          : "cursor-pointer border-transparent bg-card/40 hover:border-border hover:bg-card/60",
+      )}
+      title={child.name}
+    >
+      {child.imageUrl ? (
+        <img src={child.imageUrl} alt="" className="size-4 shrink-0 rounded-full border border-border object-cover" />
+      ) : (
+        <span
+          className={cn(
+            "flex size-4 shrink-0 items-center justify-center rounded-full border text-[7px] font-bold",
+            child.sex === "female"
+              ? "border-accent/40 bg-secondary text-accent-foreground"
+              : "border-primary/30 bg-secondary text-primary",
+          )}
+        >
+          {child.name.charAt(0)}
+        </span>
+      )}
+      <span className="font-serif text-[10px] font-semibold leading-tight truncate max-w-[88px] sm:max-w-none">
+        {child.name}
+      </span>
+      {child.birthYear && (
+        <span className="text-[8px] italic text-muted-foreground/50">
+          {child.birthYear}
+        </span>
+      )}
+      {hasKids && (
+        <span className="ml-0.5 text-muted-foreground/40 transition-transform group-hover/chip:text-primary/60">
+          {isExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+        </span>
+      )}
+    </button>
+  );
 }
 
-/* ── PersonCard ───────────────────────────────────────────────── */
+function ChildChip({
+  child,
+  hasKids,
+  isExpanded,
+  onToggle,
+  onSelect,
+}: {
+  child: Person;
+  hasKids: boolean;
+  isExpanded: boolean;
+  onToggle: () => void;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (hasKids) onToggle();
+        onSelect();
+      }}
+      className={cn(
+        "group/chip relative flex items-center gap-1.5 rounded-sm border px-3 py-1.5 transition-all duration-200",
+        hasKids
+          ? "cursor-pointer border-dashed border-border bg-card/60 hover:border-primary/50 hover:bg-card hover:shadow-sm"
+          : "cursor-pointer border-transparent bg-card/40 hover:border-border hover:bg-card/60",
+      )}
+      title={child.name}
+    >
+      {child.imageUrl ? (
+        <img src={child.imageUrl} alt="" className="size-5 shrink-0 rounded-full border border-border object-cover" />
+      ) : (
+        <span
+          className={cn(
+            "flex size-5 shrink-0 items-center justify-center rounded-full border text-[9px] font-bold",
+            child.sex === "female"
+              ? "border-accent/40 bg-secondary text-accent-foreground"
+              : "border-primary/30 bg-secondary text-primary",
+          )}
+        >
+          {child.name.charAt(0)}
+        </span>
+      )}
+      <span className="font-serif text-xs font-semibold leading-tight">
+        {child.name.length > 16 ? child.name.slice(0, 14) + "…" : child.name}
+      </span>
+      {child.birthYear && (
+        <span className="text-[10px] italic text-muted-foreground/50">
+          {child.birthYear}
+        </span>
+      )}
+      {hasKids && (
+        <span className="ml-0.5 text-muted-foreground/40 transition-transform group-hover/chip:text-primary/60">
+          {isExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/* ── PersonCard ────────────────────────────────────────────────── */
 
 function PersonCard({
   person,
@@ -387,7 +402,7 @@ function PersonCard({
       className={cn(
         "group/card flex items-center gap-2 rounded-sm border bg-card shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md",
         compact
-          ? "w-auto max-w-[180px] border-border/60 px-2 py-1.5"
+          ? "w-auto max-w-[170px] border-border/60 px-2 py-1.5"
           : "w-40 border-border px-2.5 py-2 sm:w-44",
       )}
     >
@@ -395,10 +410,7 @@ function PersonCard({
         <img
           src={person.imageUrl}
           alt={person.name}
-          className={cn(
-            "shrink-0 rounded-full border border-border object-cover",
-            compact ? "size-6" : "size-8",
-          )}
+          className={cn("shrink-0 rounded-full border border-border object-cover", compact ? "size-6" : "size-8")}
         />
       ) : (
         <span
@@ -414,25 +426,78 @@ function PersonCard({
         </span>
       )}
       <span className="min-w-0 text-left">
-        <span
-          className={cn(
-            "block truncate font-serif font-semibold leading-tight",
-            compact ? "text-[11px]" : "text-[13px]",
-          )}
-        >
+        <span className={cn("block truncate font-serif font-semibold leading-tight", compact ? "text-[11px]" : "text-[13px]")}>
           {person.name}
         </span>
         {years && (
-          <span
-            className={cn(
-              "block truncate italic leading-tight text-muted-foreground",
-              compact ? "text-[9px]" : "text-[11px]",
-            )}
-          >
+          <span className={cn("block truncate italic leading-tight text-muted-foreground", compact ? "text-[9px]" : "text-[11px]")}>
             {years}
           </span>
         )}
       </span>
     </button>
   );
+}
+
+/* ── helpers ───────────────────────────────────────────────────── */
+
+function partnerOf(id: PersonId, byId: Map<string, Person>, people: Person[]): Person | undefined {
+  const p = byId.get(id);
+  if (!p) return undefined;
+  if (p.partnerId) {
+    const direct = byId.get(p.partnerId);
+    if (direct) return direct;
+  }
+  return people.find((q) => q.partnerId === id);
+}
+
+function parentsOf(id: PersonId, byId: Map<string, Person>, people: Person[]): Person[] {
+  const p = byId.get(id);
+  if (!p) return [];
+  const partner = partnerOf(id, byId, people);
+  const ids = new Set<string>();
+  for (const member of [p, partner]) {
+    if (member?.fatherId) ids.add(member.fatherId);
+    if (member?.motherId) ids.add(member.motherId);
+  }
+  return [...ids]
+    .map((i) => byId.get(i))
+    .filter((x): x is Person => Boolean(x))
+    .sort((a, b) => sortKey(a) - sortKey(b));
+}
+
+function childrenOf(id: PersonId, byId: Map<string, Person>, people: Person[]): Person[] {
+  return people
+    .filter((c) => c.fatherId === id || c.motherId === id)
+    .sort((a, b) => sortKey(a) - sortKey(b));
+}
+
+function siblingCountOf(id: PersonId, byId: Map<string, Person>, people: Person[]): number {
+  const p = byId.get(id);
+  if (!p) return 0;
+  const father = p.fatherId;
+  const mother = p.motherId;
+  return people.filter(
+    (m) => m._id !== id && sameParentSet(m, { fatherId: father, motherId: mother }),
+  ).length;
+}
+
+function hasDescendants(id: PersonId, people: Person[]): boolean {
+  return people.some((c) => c.fatherId === id || c.motherId === id);
+}
+
+function sameParentSet(
+  a: { fatherId?: Id<"people">; motherId?: Id<"people"> },
+  b: { fatherId?: Id<"people">; motherId?: Id<"people"> },
+): boolean {
+  const aF = a.fatherId;
+  const aM = a.motherId;
+  const bF = b.fatherId;
+  const bM = b.motherId;
+  if (aF == null && aM == null) return true;
+  if (bF == null && bM == null) return true;
+  if (aF != null && bF != null && aM != null && bM != null) return aF === bF && aM === bM;
+  if (aF != null && bF != null) return aF === bF;
+  if (aM != null && bM != null) return aM === bM;
+  return false;
 }

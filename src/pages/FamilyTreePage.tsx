@@ -5,6 +5,7 @@ import { Link, useParams } from "react-router";
 import { FamilyTree } from "@/components/tree/FamilyTree";
 import { PublicNav } from "@/components/branding";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -17,32 +18,26 @@ import type { Doc, Id } from "../convex/_generated/dataModel";
 
 type Person = Doc<"people">;
 
-function pickRoot(people: Person[]): Person {
-  const roots = people.filter((p) => !p.fatherId && !p.motherId);
-  const pool = roots.length > 0 ? roots : people;
-  return [...pool].sort(
-    (a, b) => (a.birthYear ?? 9999) - (b.birthYear ?? 9999),
-  )[0];
-}
-
 export default function FamilyTreePage() {
   const { slug } = useParams<{ slug: string }>();
-  const family = useQuery(api.families.getBySlug,
-    slug ? { slug } : "skip",
-  );
-  const people = useQuery(
-    api.people.listByFamily,
-    family ? { familyId: family._id } : "skip",
-  );
+  const family = useQuery(api.families.getBySlug, slug ? { slug } : "skip");
+  const people = useQuery(api.people.listByFamily, family ? { familyId: family._id } : "skip");
 
   const [focusId, setFocusId] = useState<Id<"people"> | null>(null);
   const [zoom, setZoom] = useState(1);
+  const [ledgerFilter, setLedgerFilter] = useState("");
 
+  // Auto-focus the eldest forebear when the register loads.
   useEffect(() => {
     if (people && people.length > 0 && !focusId) {
-      setFocusId(pickRoot(people)._id);
+      const roots = people.filter((p) => !p.fatherId && !p.motherId);
+      const pool = roots.length > 0 ? roots : people;
+      const eldest = [...pool].sort(
+        (a, b) => (a.birthYear ?? 9999) - (b.birthYear ?? 9999),
+      )[0];
+      setFocusId(eldest._id);
     }
-  }, [people, focusId]);
+  }, [people, focusId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sorted = useMemo(
     () =>
@@ -52,18 +47,24 @@ export default function FamilyTreePage() {
     [people],
   );
 
-  /* ---------------------------------------------------------------
-   * Loading / 404 states
-   * ------------------------------------------------------------- */
+  const ledger = useMemo(() => {
+    if (!people) return [];
+    const q = ledgerFilter.trim().toLowerCase();
+    if (!q) return people;
+    return people.filter((p) =>
+      p.name.toLowerCase().includes(q) ||
+      String(p.birthYear ?? "").includes(q),
+    );
+  }, [people, ledgerFilter]);
+
+  // ── loading / 404 ─────────────────────────────────────────────
   if (family === undefined) {
     return (
       <div className="relative flex h-screen flex-col bg-background">
         <div className="grain-overlay" aria-hidden />
         <PublicNav />
         <div className="flex flex-1 items-center justify-center">
-          <p className="text-sm italic text-muted-foreground">
-            Consulting the shelves…
-          </p>
+          <p className="text-sm italic text-muted-foreground">Consulting the shelves…</p>
         </div>
       </div>
     );
@@ -76,9 +77,7 @@ export default function FamilyTreePage() {
         <PublicNav />
         <div className="flex flex-1 items-center justify-center">
           <div className="frame-archive max-w-md rounded-sm bg-card p-10 text-center">
-            <h1 className="font-serif text-2xl font-semibold">
-              Register not found
-            </h1>
+            <h1 className="font-serif text-2xl font-semibold">Register not found</h1>
             <p className="mt-3 text-sm italic text-muted-foreground">
               No family archive answers to that name.
             </p>
@@ -110,7 +109,6 @@ export default function FamilyTreePage() {
           >
             <ArrowLeft className="size-5" />
           </Link>
-
           <div className="min-w-0 text-center sm:text-left">
             <h1 className="font-serif text-xl font-bold tracking-tight sm:text-2xl">
               {family.name}
@@ -128,13 +126,8 @@ export default function FamilyTreePage() {
       <div className="z-20 shrink-0 border-b border-border/40 bg-background/80 backdrop-blur-sm">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-2 sm:px-6">
           <div className="flex items-center gap-2">
-            <span className="label-archival text-muted-foreground">
-              Centre upon
-            </span>
-            <Select
-              value={focusId ?? ""}
-              onValueChange={(v) => setFocusId(v as Id<"people">)}
-            >
+            <span className="label-archival text-muted-foreground">Centre upon</span>
+            <Select value={focusId ?? ""} onValueChange={(v) => setFocusId(v as Id<"people">)}>
               <SelectTrigger className="w-52 font-serif">
                 <SelectValue placeholder="Choose a soul…" />
               </SelectTrigger>
@@ -156,7 +149,7 @@ export default function FamilyTreePage() {
             <div className="flex items-center gap-0.5 rounded-sm border border-border bg-card p-0.5">
               <button
                 type="button"
-                title="Draw nigh"
+                title="Zoom in"
                 onClick={() => setZoom((z) => Math.min(1.5, z + 0.15))}
                 className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
               >
@@ -167,7 +160,7 @@ export default function FamilyTreePage() {
               </span>
               <button
                 type="button"
-                title="Step back"
+                title="Zoom out"
                 onClick={() => setZoom((z) => Math.max(0.5, z - 0.15))}
                 className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
               >
@@ -178,35 +171,85 @@ export default function FamilyTreePage() {
         </div>
       </div>
 
-      {/* ── Tree Canvas (fills remaining viewport) ─────────── */}
+      {/* ── Body: tree + ledger ─────────────────────────────── */}
       <div className="relative flex-1 overflow-auto bg-card/30">
-        {!hasPeople || !focusId ? (
+        {!hasPeople ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm italic text-muted-foreground">
-              {hasPeople
-                ? "Select a soul to centre the tree."
-                : "This register awaits its first entries. "}
-              {hasPeople ? null : (
-                <Link
-                  to="/auth?returnTo=%2Fdashboard"
-                  className="underline underline-offset-2 hover:text-primary"
-                >
-                  To the Curator's Desk →
-                </Link>
-              )}
+              This register awaits its first entries.
             </p>
           </div>
         ) : (
-          <div className="mx-auto w-fit min-w-max px-8 py-12">
-            <FamilyTree
-              people={people}
-              focusId={focusId}
-              onFocusChange={setFocusId}
-              zoom={zoom}
-            />
+          <div className="mx-auto w-fit min-w-max px-8 pb-8 pt-6">
+            {/* Tree canvas */}
+            <div className="mx-auto w-fit">
+              <FamilyTree people={people} focusId={focusId!} onFocusChange={setFocusId} zoom={zoom} />
+            </div>
+
+            {/* Ledger */}
+            {ledger.length > 0 && (
+              <div className="mt-12 w-full max-w-3xl">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="label-archival text-xs tracking-[0.3em] text-muted-foreground/70">
+                    FULL LEDGER · {ledger.length}
+                  </h2>
+                  <Input
+                    placeholder="Search ledger…"
+                    value={ledgerFilter}
+                    onChange={(e) => setLedgerFilter(e.target.value)}
+                    className="w-48 bg-background/60 font-serif text-sm"
+                  />
+                </div>
+                <div className="frame-archive rounded-sm border border-border/60 bg-card/70 p-4">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-border/60 text-muted-foreground">
+                        <th className="px-3 py-2 label-archival text-[11px] font-medium">Name</th>
+                        <th className="px-3 py-2 label-archival text-[11px] font-medium">Years</th>
+                        <th className="hidden px-3 py-2 label-archival text-[11px] font-medium sm:table-cell">Father</th>
+                        <th className="hidden px-3 py-2 label-archival text-[11px] font-medium sm:table-cell">Mother</th>
+                        <th className="hidden px-3 py-2 label-archival text-[11px] font-medium md:table-cell">Partner</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ledger.map((person) => (
+                        <tr key={person._id} className="border-b border-border/40 hover:bg-secondary/40">
+                          <td className="px-3 py-2 font-serif font-medium">
+                            <span className="flex items-center gap-2">
+                              {person.imageUrl && (
+                                <img src={person.imageUrl} alt="" className="size-6 shrink-0 rounded-full border border-border object-cover" />
+                              )}
+                              <span className="truncate">{person.name}</span>
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-xs italic tabular-nums text-muted-foreground">
+                            {person.birthYear || person.deathYear
+                              ? `${person.birthYear ?? "?"} – ${person.deathYear ?? ""}`
+                              : "—"}
+                          </td>
+                          <td className="hidden px-3 py-2 text-xs text-muted-foreground sm:table-cell">
+                            {person.fatherId ? lookupName(person.fatherId!, people) : "—"}
+                          </td>
+                          <td className="hidden px-3 py-2 text-xs text-muted-foreground sm:table-cell">
+                            {person.motherId ? lookupName(person.motherId!, people) : "—"}
+                          </td>
+                          <td className="hidden px-3 py-2 text-xs text-muted-foreground md:table-cell">
+                            {person.partnerId ? lookupName(person.partnerId!, people) : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
     </div>
   );
+}
+
+function lookupName(id: Id<"people">, people: Person[]): string {
+  return people.find((p) => p._id === id)?.name ?? "—";
 }

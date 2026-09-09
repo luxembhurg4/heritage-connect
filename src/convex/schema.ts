@@ -46,6 +46,11 @@ const schema = defineSchema(
     // People belonging to a family register.
     // Relationships: fatherId/motherId create lineage (shared parents => siblings,
     // detected automatically); partnerId is a single spouse/partner link.
+    // Indexes:
+    //   by_family      — full register listing
+    //   by_parents     — find siblings efficiently (shared father or mother)
+    //   by_descendants — find children of a given person
+    //   by_ancestors   — find parents of a given person
     people: defineTable({
       familyId: v.id("families"),
       name: v.string(),
@@ -57,7 +62,11 @@ const schema = defineSchema(
       partnerId: v.optional(v.id("people")),
       imageStorageId: v.optional(v.id("_storage")),
       imageUrl: v.optional(v.string()),
-    }).index("by_family", ["familyId"]),
+    })
+      .index("by_family", ["familyId"])
+      .index("by_parents_father", ["familyId", "fatherId"])
+      .index("by_parents_mother", ["familyId", "motherId"])
+      .index("by_descendants", ["familyId", "fatherId", "motherId"]),
   },
   {
     schemaValidation: false,
