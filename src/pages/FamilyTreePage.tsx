@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
-import { ArrowLeft, Minus, Plus } from "lucide-react";
+import { ArrowLeft, ListTree, Table2, Minus, Plus } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { FamilyTree } from "@/components/tree/FamilyTree";
 import { PublicNav } from "@/components/branding";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -26,6 +27,7 @@ export default function FamilyTreePage() {
   const [focusId, setFocusId] = useState<Id<"people"> | null>(null);
   const [zoom, setZoom] = useState(1);
   const [ledgerFilter, setLedgerFilter] = useState("");
+  const [view, setView] = useState<"tree" | "ledger">("tree");
 
   // Auto-focus the eldest forebear when the register loads.
   useEffect(() => {
@@ -109,6 +111,36 @@ export default function FamilyTreePage() {
           >
             <ArrowLeft className="size-5" />
           </Link>
+          <div className="flex shrink-0 items-center rounded-sm border border-border bg-card p-0.5">
+            <button
+              type="button"
+              onClick={() => setView("tree")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-xs font-medium transition-colors",
+                view === "tree"
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+              )}
+              title="Show the family tree"
+            >
+              <ListTree className="size-4" />
+              Tree
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("ledger")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-xs font-medium transition-colors",
+                view === "ledger"
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+              )}
+              title="Show the full ledger"
+            >
+              <Table2 className="size-4" />
+              Ledger
+            </button>
+          </div>
           <div className="min-w-0 text-center sm:text-left">
             <h1 className="font-serif text-xl font-bold tracking-tight sm:text-2xl">
               {family.name}
@@ -179,11 +211,13 @@ export default function FamilyTreePage() {
               This register awaits its first entries.
             </p>
           </div>
-        ) : (
+        ) : view === "tree" ? (
           <div className="w-full px-6 pb-8 pt-6">
             {/* Tree canvas — full width, no max-width box */}
             <FamilyTree people={people} focusId={focusId!} onFocusChange={setFocusId} zoom={zoom} />
-
+          </div>
+        ) : (
+          <div className="w-full px-6 pb-8 pt-6">
             {/* Ledger */}
             {ledger.length > 0 && (
               <div className="mt-10 w-full">
