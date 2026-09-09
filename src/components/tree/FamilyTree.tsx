@@ -226,36 +226,44 @@ function FamilyHub({
               ))}
             </div>
           ) : (
-            /* Horizontal tree: children spread across the row, expanded hubs drop below their column */
+            /* Horizontal tree: children spread across the row, expanded hubs drop below their column.
+                A child's hub renders when expanded OR when they have a partner (partner always visible).
+                When the hub is showing, the chip is hidden to avoid redundant names. */
             <div className="flex flex-row flex-wrap items-start justify-center gap-x-3 gap-y-3">
-              {childrenList.map((child) => (
-                <div key={child._id} className="flex flex-col items-center">
-                  <ChildChip
-                    child={child}
-                    hasKids={hasDescendants(child._id, people)}
-                    isExpanded={expandAll || expanded.has(child._id)}
-                    onToggle={() => onToggle(child._id)}
-                    onSelect={() => onSelect?.(child._id)}
-                  />
-                  {(expandAll || expanded.has(child._id)) && hasDescendants(child._id, people) && (
-                    <div className="mt-2 flex-shrink-0 w-[180px]">
-                      <FamilyHub
-                        person={child}
-                        spouse={partnerOf(child._id, byId, people)}
-                        parentIds={[child._id]}
-                        childrenList={childrenOf(child._id, byId, people)}
-                        expanded={expanded}
-                        expandAll={expandAll}
-                        onToggle={onToggle}
-                        onSelect={onSelect}
-                        byId={byId}
-                        people={people}
-                        depth={depth + 1}
+              {childrenList.map((child) => {
+                const childHasPartner = !!partnerOf(child._id, byId, people);
+                const showHub = (expandAll || expanded.has(child._id)) && (hasDescendants(child._id, people) || childHasPartner);
+                return (
+                  <div key={child._id} className="flex flex-col items-center">
+                    {!showHub && (
+                      <ChildChip
+                        child={child}
+                        hasKids={hasDescendants(child._id, people)}
+                        isExpanded={expandAll || expanded.has(child._id)}
+                        onToggle={() => onToggle(child._id)}
+                        onSelect={() => onSelect?.(child._id)}
                       />
-                    </div>
-                  )}
-                </div>
-              ))}
+                    )}
+                    {showHub && (
+                      <div className="mt-2 flex-shrink-0 w-[180px]">
+                        <FamilyHub
+                          person={child}
+                          spouse={partnerOf(child._id, byId, people)}
+                          parentIds={[child._id]}
+                          childrenList={childrenOf(child._id, byId, people)}
+                          expanded={expanded}
+                          expandAll={expandAll}
+                          onToggle={onToggle}
+                          onSelect={onSelect}
+                          byId={byId}
+                          people={people}
+                          depth={depth + 1}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
