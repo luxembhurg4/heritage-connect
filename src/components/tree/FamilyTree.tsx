@@ -216,7 +216,8 @@ function FamilyHub({
               ))}
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
+            /* Horizontal tree: children spread across the row, expanded hubs drop below their column */
+            <div className="flex flex-row flex-wrap items-start justify-center gap-x-3 gap-y-3">
               {childrenList.map((child) => (
                 <div key={child._id} className="flex flex-col items-center">
                   <ChildChip
@@ -227,7 +228,7 @@ function FamilyHub({
                     onSelect={() => onSelect?.(child._id)}
                   />
                   {(expandAll || expanded.has(child._id)) && hasDescendants(child._id, people) && (
-                    <div className="mt-2 w-full pl-4 sm:pl-6">
+                    <div className="mt-2 w-full max-w-[200px]">
                       <FamilyHub
                         person={child}
                         spouse={partnerOf(child._id, byId, people)}
