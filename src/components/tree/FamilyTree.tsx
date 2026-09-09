@@ -172,13 +172,8 @@ function FamilyHub({
         isOuter
           ? "shadow-none"
           : "rounded-lg shadow-[0_1px_3px_rgba(60,40,20,0.08)]",
-        depth === 1
-          ? "rounded-lg bg-card/25"
-          : depth > 1
-          ? "rounded-lg bg-card/10"
-          : isOuter
-          ? ""
-          : "rounded-lg",
+        depth === 1 && "rounded-lg bg-card/25",
+        depth > 1 && "rounded-lg bg-card/10",
       )}
     >
       {/* Couple row */}
