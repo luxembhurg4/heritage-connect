@@ -101,7 +101,7 @@ export default function FamilyTreePage() {
 
       {/* ── Top Ribbon ───────────────────────────────────────── */}
       <header className="shrink-0 border-b border-border/60 bg-card/70 backdrop-blur-sm">
-        <div className="mx-auto flex w-full max-w-5xl items-center gap-4 px-4 py-4 sm:px-6">
+        <div className="flex w-full items-center gap-4 px-6 py-4">
           <Link
             to="/families"
             className="shrink-0 rounded-sm p-1 text-muted-foreground transition-colors hover:text-primary"
@@ -124,7 +124,7 @@ export default function FamilyTreePage() {
 
       {/* ── Toolbar ─────────────────────────────────────────── */}
       <div className="z-20 shrink-0 border-b border-border/40 bg-background/80 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-2 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-6 py-2">
           <div className="flex items-center gap-2">
             <span className="label-archival text-muted-foreground">Centre upon</span>
             <Select value={focusId ?? ""} onValueChange={(v) => setFocusId(v as Id<"people">)}>
@@ -180,15 +180,13 @@ export default function FamilyTreePage() {
             </p>
           </div>
         ) : (
-          <div className="mx-auto w-fit min-w-max px-8 pb-8 pt-6">
-            {/* Tree canvas */}
-            <div className="mx-auto w-fit">
-              <FamilyTree people={people} focusId={focusId!} onFocusChange={setFocusId} zoom={zoom} />
-            </div>
+          <div className="w-full px-6 pb-8 pt-6">
+            {/* Tree canvas — full width, no max-width box */}
+            <FamilyTree people={people} focusId={focusId!} onFocusChange={setFocusId} zoom={zoom} />
 
             {/* Ledger */}
             {ledger.length > 0 && (
-              <div className="mt-12 w-full max-w-3xl">
+              <div className="mt-10 w-full">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="label-archival text-xs tracking-[0.3em] text-muted-foreground/70">
                     FULL LEDGER · {ledger.length}
