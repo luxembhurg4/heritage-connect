@@ -79,7 +79,7 @@ export function FamilyTree({
       {focusParents.length > 0 && (
         <div className="mb-6 flex flex-col items-center gap-2">
           <span className="label-archival text-[10px] tracking-[0.3em] text-muted-foreground/50">
-            PARENTAGE
+            PARENTS
           </span>
           <div className="flex items-center gap-2">
             {focusParents.map((parent, i) => (
@@ -111,8 +111,7 @@ export function FamilyTree({
       {/* Sibling count chip */}
       {siblingCount > 0 && (
         <div className="mb-3 flex items-center gap-1.5 rounded-sm border border-dashed border-border bg-card/50 px-3 py-1 text-xs text-muted-foreground/70">
-          <span className="label-archival text-[9px]">SIBLINGS</span>
-          <span>{siblingCount}</span>
+          <span className="label-archival text-[9px]">SIBLINGS · {siblingCount}</span>
         </div>
       )}
 
@@ -182,9 +181,7 @@ function FamilyHub({
           <PersonCard person={person} onSelect={() => onSelect?.(person._id)} />
           {spouse && (
             <>
-              <span className="select-none text-sm text-accent/70" title="Joined">
-                ❧
-              </span>
+              <WeddingRing />
               <PersonCard person={spouse} onSelect={() => onSelect?.(spouse._id)} />
             </>
           )}
@@ -192,7 +189,7 @@ function FamilyHub({
       ) : spouse ? (
         <div className="flex flex-col items-center gap-1">
           <PersonCard person={person} onSelect={() => onSelect?.(person._id)} />
-          <span className="select-none text-[10px] text-accent/60">joined with</span>
+          <WeddingRing />
           <PersonCard person={spouse} onSelect={() => onSelect?.(spouse._id)} />
         </div>
       ) : (
@@ -205,7 +202,7 @@ function FamilyHub({
           <div className="mx-auto mb-3 flex items-center gap-2">
             <div className="h-px flex-1 bg-border/50" />
             <span className="label-archival text-[9px] tracking-[0.25em] text-muted-foreground/40">
-              ISSUE · {childrenList.length}
+              CHILDREN · {childrenList.length}
             </span>
             <div className="h-px flex-1 bg-border/50" />
           </div>
@@ -328,6 +325,27 @@ function CompactChildChip({
         </span>
       )}
     </button>
+  );
+}
+
+/* ── WeddingRing ─────────────────────────────────────────────── */
+
+function WeddingRing() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      role="img"
+      aria-label="Married"
+      className="size-4 shrink-0 text-accent"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinejoin="round"
+    >
+      <title>Married</title>
+      <circle cx="12" cy="14" r="7" />
+      <path d="M9 7.5 L12 3.5 L15 7.5" />
+    </svg>
   );
 }
 
