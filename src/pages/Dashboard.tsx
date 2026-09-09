@@ -601,91 +601,56 @@ function RelationField({
   );
 }
 
-/** Single "Parents" picker — one list, auto-routes the pick to father or
- *  mother based on the person's recorded sex. Shows both current parents. */
+/** Single "Parents" picker — lists partnered couples as one unit.
+ *  Choosing a couple assigns father and mother in one step. */
 function ParentsField({
-  fatherName,
-  motherName,
-  fatherOptions,
-  motherOptions,
-  onPick,
+  fatherId,
+  motherId,
+  couples,
+  onPickCouple,
+  onClear,
 }: {
-  fatherName: string;
-  motherName: string;
-  fatherOptions: Person[];
-  motherOptions: Person[];
-  onPick: (id: string) => void;
+  fatherId: string;
+  motherId: string;
+  couples: { key: string; father: Person; mother: Person }[];
+  onPickCouple: (fatherId: string, motherId: string) => void;
+  onClear: () => void;
 }) {
-  const bothSet = fatherName !== "" && motherName !== "";
+  const currentKey =
+    couples.find((c) => c.father._id === fatherId && c.mother._id === motherId)?.key ??
+    couples.find((c) => c.father._id === fatherId || c.mother._id === motherId)?.key ??
+    NONE;
+  const hasAny =
+    (fatherId !== NONE && fatherId !== "") ||
+    (motherId !== NONE && motherId !== "");
   return (
     <div className="min-w-0">
       <Label className="label-archival text-muted-foreground">Parents</Label>
-      {bothSet ? (
-        <div className="mt-1.5 flex items-center gap-2 rounded-sm border border-border bg-background/40 px-3 py-2">
-          <span className="min-w-0 flex-1 truncate font-serif text-sm">
-            {fatherName} <span className="text-muted-foreground">+</span> {motherName}
-          </span>
-          <Select onValueChange={(v) => onPick(v)}>
-            <SelectTrigger className="h-7 w-auto gap-1 border-none bg-transparent px-2 text-xs text-muted-foreground shadow-none hover:text-primary">
-              <SelectValue placeholder="Amend" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NONE}>Clear both</SelectItem>
-              {fatherOptions.map((p) => (
-                <SelectItem key={p._id} value={p._id}>
-                  {p.name} {p.birthYear ? `(${p.birthYear})` : ""}
-                </SelectItem>
-              ))}
-              {motherOptions.map((p) => (
-                <SelectItem key={p._id} value={p._id}>
-                  {p.name} {p.birthYear ? `(${p.birthYear})` : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      ) : (
-        <Select
-          value={fatherName || motherName ? (fatherName ? "_father" : "_mother") : NONE}
-          onValueChange={(v) => {
-            if (v === NONE) {
-              onPick(NONE);
-            } else if (v === "_father" && fatherOptions.length > 0) {
-              onPick(fatherOptions[0]._id);
-            } else if (v === "_mother" && motherOptions.length > 0) {
-              onPick(motherOptions[0]._id);
-            } else if (v !== "_father" && v !== "_mother") {
-              onPick(v);
-            }
-          }}
-        >
-          <SelectTrigger className="mt-1.5 w-full min-w-0 font-serif [&>span]:truncate">
-            <SelectValue placeholder="—" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NONE}>None recorded</SelectItem>
-            {fatherOptions.map((p) => (
-              <SelectItem key={p._id} value={p._id}>
-                {p.name}
-                {p.birthYear ? ` (${p.birthYear})` : ""}
-              </SelectItem>
-            ))}
-            {motherOptions.map((p) => (
-              <SelectItem key={p._id} value={p._id}>
-                {p.name}
-                {p.birthYear ? ` (${p.birthYear})` : ""}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
+      <Select
+        value={hasAny ? currentKey : NONE}
+        onValueChange={(v) => {
+          if (v === NONE) {
+            onClear();
+            return;
+          }
+          const couple = couples.find((c) => c.key === v);
+          if (couple) onPickCouple(couple.father._id, couple.mother._id);
+        }}
+      >
+        <SelectTrigger className="mt-1.5 w-full min-w-0 font-serif [&>span]:truncate">
+          <SelectValue placeholder="—" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NONE}>None recorded</SelectItem>
+          {couples.map((c) => (
+            <SelectItem key={c.key} value={c.key}>
+              {c.father.name} ⚭ {c.mother.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
-}
-
-function nameOf(id: string, members: Person[]): string {
-  if (!id || id === NONE) return "";
-  return members.find((m) => m._id === id)?.name ?? "";
 }
 
 function PersonDialog({
@@ -740,27 +705,31 @@ function PersonDialog({
     setPrefillKey(null);
   }
 
-  // Fathers must be male and older than the entry; mothers female and older.
-  // The current selection always stays visible so an existing choice is
-  // never silently hidden.
-  const entryBirth = yearOf(form.birthYear);
-  const olderThanEntry = (cand: Person): boolean => {
-    if (entryBirth == null) return true;
-    return cand.birthYear != null && cand.birthYear < entryBirth;
-  };
+  // Couples for the Parents picker: each partnered pair offered as one unit.
+  const couples = useMemo(() => {
+    const seen = new Set<string>();
+    const list: { key: string; father: Person; mother: Person }[] = [];
+    for (const m of members) {
+      if (!m.partnerId) continue;
+      const partner = members.find((x) => x._id === m.partnerId);
+      if (!partner) continue;
+      const key = [m._id, partner._id].sort().join("|");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const father =
+        m.sex === "male" && partner.sex !== "male"
+          ? m
+          : partner.sex === "male" && m.sex !== "male"
+          ? partner
+          : (m.birthYear ?? 9999) <= (partner.birthYear ?? 9999)
+          ? m
+          : partner;
+      const mother = father._id === m._id ? partner : m;
+      list.push({ key, father, mother });
+    }
+    return list;
+  }, [members]);
   const selfExcluded = editing ? new Set<string>([editing._id]) : new Set<string>();
-  const fatherOptions = members.filter(
-    (m) =>
-      !selfExcluded.has(m._id) &&
-      m.sex === "male" &&
-      (olderThanEntry(m) || m._id === form.fatherId),
-  );
-  const motherOptions = members.filter(
-    (m) =>
-      !selfExcluded.has(m._id) &&
-      m.sex === "female" &&
-      (olderThanEntry(m) || m._id === form.motherId),
-  );
   const partnerOptions = members.filter((m) => !selfExcluded.has(m._id));
 
   const handleFile = async (file?: File) => {
@@ -911,14 +880,13 @@ function PersonDialog({
                 ) : (
                   <label
                     htmlFor="died-toggle"
-                    className="mt-1.5 flex h-9 cursor-pointer items-center gap-2 rounded-sm border border-dashed border-border bg-background/40 px-3 text-xs italic text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+                    className="mt-1.5 flex h-9 cursor-pointer items-center gap-2 rounded-sm border border-dashed border-border bg-background/40 px-3"
                   >
                     <Checkbox
                       id="died-toggle"
                       checked={false}
                       onCheckedChange={(v) => setShowDied(v === true)}
                     />
-                    Still living — tick to record death
                   </label>
                 )}
               </div>
@@ -926,23 +894,11 @@ function PersonDialog({
           </div>
 
           <ParentsField
-            fatherName={nameOf(form.fatherId, members)}
-            motherName={nameOf(form.motherId, members)}
-            fatherOptions={fatherOptions}
-            motherOptions={motherOptions}
-            onPick={(id) => {
-              const picked = members.find((m) => m._id === id);
-              if (!picked) {
-                set({ fatherId: NONE, motherId: NONE });
-                return;
-              }
-              if (picked.sex === "female") {
-                set({ motherId: id });
-              } else {
-                // Male or unrecorded — prefer the empty father slot
-                set(form.fatherId === NONE || form.fatherId === "" ? { fatherId: id } : { fatherId: id });
-              }
-            }}
+            fatherId={form.fatherId}
+            motherId={form.motherId}
+            couples={couples}
+            onPickCouple={(fid, mid) => set({ fatherId: fid, motherId: mid })}
+            onClear={() => set({ fatherId: NONE, motherId: NONE })}
           />
           <RelationField
             label="Partner"
