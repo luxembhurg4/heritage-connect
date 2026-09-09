@@ -176,18 +176,28 @@ function FamilyHub({
         depth > 1 && "rounded-lg bg-card/10",
       )}
     >
-      {/* Couple row */}
-      <div className="flex items-center justify-center gap-2">
+      {/* Couple row — side-by-side at root, stacked in nested hubs to save horizontal space */}
+      {depth === 0 ? (
+        <div className="flex items-center justify-center gap-2">
+          <PersonCard person={person} onSelect={() => onSelect?.(person._id)} compact={depth > 0} />
+          {spouse && (
+            <>
+              <span className="select-none text-sm text-accent/70" title="Joined">
+                ❧
+              </span>
+              <PersonCard person={spouse} onSelect={() => onSelect?.(spouse._id)} compact={depth > 0} />
+            </>
+          )}
+        </div>
+      ) : spouse ? (
+        <div className="flex flex-col items-center gap-1">
+          <PersonCard person={person} onSelect={() => onSelect?.(person._id)} compact={depth > 0} />
+          <span className="select-none text-[10px] text-accent/60">joined with</span>
+          <PersonCard person={spouse} onSelect={() => onSelect?.(spouse._id)} compact={depth > 0} />
+        </div>
+      ) : (
         <PersonCard person={person} onSelect={() => onSelect?.(person._id)} compact={depth > 0} />
-        {spouse && (
-          <>
-            <span className="select-none text-sm text-accent/70" title="Joined">
-              ❧
-            </span>
-            <PersonCard person={spouse} onSelect={() => onSelect?.(spouse._id)} compact={depth > 0} />
-          </>
-        )}
-      </div>
+      )}
 
       {/* Children */}
       {childrenList.length > 0 && (
@@ -228,7 +238,7 @@ function FamilyHub({
                     onSelect={() => onSelect?.(child._id)}
                   />
                   {(expandAll || expanded.has(child._id)) && hasDescendants(child._id, people) && (
-                    <div className="mt-2 w-full max-w-[200px]">
+                    <div className="mt-2 flex-shrink-0 w-[180px]">
                       <FamilyHub
                         person={child}
                         spouse={partnerOf(child._id, byId, people)}
