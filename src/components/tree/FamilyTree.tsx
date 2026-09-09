@@ -437,12 +437,12 @@ function PersonCard({
           {person.name.trim().charAt(0).toUpperCase()}
         </span>
       )}
-      <div className="flex flex-col text-left">
-        <div className="min-w-0 truncate font-serif font-semibold leading-tight text-[13px]">
+      <div className="text-left">
+        <div className="truncate font-serif font-semibold leading-tight text-[13px]">
           {person.name}
         </div>
         {years && (
-          <div className="truncate italic leading-tight text-muted-foreground text-[11px]">
+          <div className="italic leading-tight text-muted-foreground text-[11px]">
             {years}
           </div>
         )}
