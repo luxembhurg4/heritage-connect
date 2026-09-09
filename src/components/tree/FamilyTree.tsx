@@ -231,16 +231,15 @@ function FamilyHub({
             <div className="flex flex-row flex-wrap items-start justify-center gap-x-3 gap-y-3">
               {childrenList.map((child) => {
                 const childHasPartner = !!partnerOf(child._id, byId, people);
-                const showHub = (expandAll || expanded.has(child._id)) && (hasDescendants(child._id, people) || childHasPartner);
+                const childHasKids = hasDescendants(child._id, people);
+                const showHub = (expandAll || expanded.has(child._id)) && (childHasKids || childHasPartner);
                 return (
                   <div key={child._id} className="flex flex-col items-center">
                     {!showHub && (
-                      <ChildChip
-                        child={child}
-                        hasKids={hasDescendants(child._id, people)}
-                        isExpanded={expandAll || expanded.has(child._id)}
-                        onToggle={() => onToggle(child._id)}
+                      <PersonCard
+                        person={child}
                         onSelect={() => onSelect?.(child._id)}
+                        onToggle={childHasKids || childHasPartner ? () => onToggle(child._id) : undefined}
                       />
                     )}
                     {showHub && (
@@ -332,73 +331,16 @@ function CompactChildChip({
   );
 }
 
-function ChildChip({
-  child,
-  hasKids,
-  isExpanded,
-  onToggle,
-  onSelect,
-}: {
-  child: Person;
-  hasKids: boolean;
-  isExpanded: boolean;
-  onToggle: () => void;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        if (hasKids) onToggle();
-        onSelect();
-      }}
-      className={cn(
-        "group/chip relative flex items-center gap-1.5 rounded-sm border px-3 py-1.5 transition-all duration-200",
-        hasKids
-          ? "cursor-pointer border-dashed border-border bg-card/60 hover:border-primary/50 hover:bg-card hover:shadow-sm"
-          : "cursor-pointer border-transparent bg-card/40 hover:border-border hover:bg-card/60",
-      )}
-      title={child.name}
-    >
-      {child.imageUrl ? (
-        <img src={child.imageUrl} alt="" className="size-5 shrink-0 rounded-full border border-border object-cover" />
-      ) : (
-        <span
-          className={cn(
-            "flex size-5 shrink-0 items-center justify-center rounded-full border text-[9px] font-bold",
-            child.sex === "female"
-              ? "border-accent/40 bg-secondary text-accent-foreground"
-              : "border-primary/30 bg-secondary text-primary",
-          )}
-        >
-          {child.name.charAt(0)}
-        </span>
-      )}
-      <span className="font-serif text-xs font-semibold leading-tight">
-        {child.name.length > 16 ? child.name.slice(0, 14) + "…" : child.name}
-      </span>
-      {child.birthYear && (
-        <span className="text-[10px] italic text-muted-foreground/50">
-          {child.birthYear}
-        </span>
-      )}
-      {hasKids && (
-        <span className="ml-0.5 text-muted-foreground/40 transition-transform group-hover/chip:text-primary/60">
-          {isExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-        </span>
-      )}
-    </button>
-  );
-}
-
 /* ── PersonCard ────────────────────────────────────────────────── */
 
 function PersonCard({
   person,
   onSelect,
+  onToggle,
 }: {
   person: Person;
   onSelect: () => void;
+  onToggle?: () => void;
 }) {
   let years = "";
   if (person.birthYear && person.deathYear) {
@@ -437,8 +379,8 @@ function PersonCard({
           {person.name.trim().charAt(0).toUpperCase()}
         </span>
       )}
-      <div className="min-w-[130px] text-left">
-        <div className="min-w-0 truncate font-serif font-semibold leading-tight text-[13px]">
+      <div className="max-w-[150px] text-left">
+        <div className="break-words font-serif font-semibold leading-snug text-[13px]">
           {person.name}
         </div>
         {years && (
@@ -447,6 +389,20 @@ function PersonCard({
           </div>
         )}
       </div>
+      {onToggle && (
+        <span
+          role="button"
+          tabIndex={-1}
+          title="Expand family"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          className="ml-0.5 self-center text-muted-foreground/50 transition-colors hover:text-primary"
+        >
+          <ChevronRight className="size-4" />
+        </span>
+      )}
     </button>
   );
 }
