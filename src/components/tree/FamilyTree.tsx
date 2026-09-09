@@ -74,7 +74,7 @@ export function FamilyTree({
   const siblingCount = siblingCountOf(focusId, byId, people);
 
   return (
-    <div className="flex flex-col items-center gap-0 overflow-auto px-4 py-8 sm:px-8">
+    <div className="flex flex-col items-center gap-0 overflow-auto px-2 sm:px-4">
       {/* Ancestor breadcrumb */}
       {focusParents.length > 0 && (
         <div className="mb-6 flex flex-col items-center gap-2">
@@ -166,12 +166,12 @@ function FamilyHub({
   return (
     <div
       className={cn(
-        "flex flex-col rounded-lg border px-4 py-3 shadow-[0_1px_3px_rgba(60,40,20,0.1)] sm:px-5 sm:py-4",
+        "flex flex-col rounded-lg px-4 py-3 shadow-[0_1px_3px_rgba(60,40,20,0.08)] sm:px-5 sm:py-4",
         depth === 0
-          ? "border-primary/20 bg-card/50"
+          ? "bg-card/40"
           : depth === 1
-          ? "border-accent/25 bg-card/35"
-          : "border-primary/12 bg-card/10",
+          ? "bg-card/25"
+          : "bg-card/10",
       )}
     >
       {/* Couple row */}
