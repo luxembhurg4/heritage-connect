@@ -17,7 +17,7 @@ function sortKey(p: Person): number {
   return p.birthYear ?? 9999;
 }
 
-const SIBLING_COMPACT = 7;
+const SIBLING_COMPACT = 8;
 
 function isCompact(peopleCount: number): boolean {
   return peopleCount > SIBLING_COMPACT;
@@ -34,25 +34,24 @@ export function FamilyTree({
   );
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expandAll, setExpandAll] = useState(false);
 
-  // Auto-expand up to 2 generations from the focus person.
+  // Auto-expand 1 generation from the focus person (children only).
+  // Grandchildren stay folded unless the family is small.
   useEffect(() => {
     const auto = new Set<string>();
-    let depth = 2;
-    let queue: PersonId[] = [focusId];
-    while (queue.length > 0 && depth > 0) {
-      const next: PersonId[] = [];
-      for (const pid of queue) {
-        const p = byId.get(pid);
-        if (!p) continue;
-        const kids = childrenOf(pid, byId, people);
-        for (const kid of kids) {
-          auto.add(kid._id);
-          next.push(kid._id);
+    const kids = childrenOf(focusId, byId, people);
+    for (const kid of kids) {
+      auto.add(kid._id);
+    }
+    // If sibling set is small, expand grandchildren too
+    if (!isCompact(kids.length)) {
+      for (const kid of kids) {
+        const grandkids = childrenOf(kid._id, byId, people);
+        for (const gk of grandkids) {
+          auto.add(gk._id);
         }
       }
-      queue = next;
-      depth--;
     }
     setExpanded(auto);
   }, [focusId, byId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -124,6 +123,7 @@ export function FamilyTree({
         parentIds={focusParents.map((p) => p._id)}
         childrenList={focusChildren}
         expanded={expanded}
+        expandAll={expandAll}
         onToggle={toggleExpand}
         onSelect={onFocusChange}
         byId={byId}
@@ -142,6 +142,7 @@ function FamilyHub({
   parentIds,
   childrenList,
   expanded,
+  expandAll,
   onToggle,
   onSelect,
   byId,
@@ -153,13 +154,13 @@ function FamilyHub({
   parentIds: PersonId[];
   childrenList: Person[];
   expanded: Set<string>;
+  expandAll: boolean;
   onToggle: (id: string) => void;
   onSelect?: (id: PersonId) => void;
   byId: Map<string, Person>;
   people: Person[];
   depth: number;
 }) {
-  const compactView = isCompact(childrenList.length);
   const bigSiblingSet = isCompact(childrenList.length);
 
   return (
@@ -189,7 +190,7 @@ function FamilyHub({
       {/* Children */}
       {childrenList.length > 0 && (
         <div className="mt-3">
-          <div className="mx-auto mb-2 flex items-center gap-2">
+          <div className="mx-auto mb-3 flex items-center gap-2">
             <div className="h-px flex-1 bg-border/50" />
             <span className="label-archival text-[9px] tracking-[0.25em] text-muted-foreground/40">
               ISSUE · {childrenList.length}
@@ -198,14 +199,14 @@ function FamilyHub({
           </div>
 
           {bigSiblingSet ? (
-            /* Compact row for large sibling sets */
+            /* Compact row for large sibling sets — chips only, no nested bubbles unless expanded */
             <div className="flex flex-wrap items-center justify-center gap-1.5">
               {childrenList.map((child) => (
                 <CompactChildChip
                   key={child._id}
                   child={child}
                   hasKids={hasDescendants(child._id, people)}
-                  isExpanded={expanded.has(child._id)}
+                  isExpanded={expandAll || expanded.has(child._id)}
                   onToggle={() => onToggle(child._id)}
                   onSelect={() => onSelect?.(child._id)}
                   compact={depth > 0}
@@ -219,11 +220,11 @@ function FamilyHub({
                   <ChildChip
                     child={child}
                     hasKids={hasDescendants(child._id, people)}
-                    isExpanded={expanded.has(child._id)}
+                    isExpanded={expandAll || expanded.has(child._id)}
                     onToggle={() => onToggle(child._id)}
                     onSelect={() => onSelect?.(child._id)}
                   />
-                  {expanded.has(child._id) && hasDescendants(child._id, people) && (
+                  {(expandAll || expanded.has(child._id)) && hasDescendants(child._id, people) && (
                     <div className="mt-2 w-full pl-4 sm:pl-6">
                       <FamilyHub
                         person={child}
@@ -231,6 +232,7 @@ function FamilyHub({
                         parentIds={[child._id]}
                         childrenList={childrenOf(child._id, byId, people)}
                         expanded={expanded}
+                        expandAll={expandAll}
                         onToggle={onToggle}
                         onSelect={onSelect}
                         byId={byId}
