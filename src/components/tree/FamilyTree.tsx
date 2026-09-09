@@ -448,16 +448,16 @@ function PersonCard({
           {person.name.trim().charAt(0).toUpperCase()}
         </span>
       )}
-      <span className="min-w-0 flex flex-col text-left">
-        <span className={cn("flex-1 min-w-0 truncate font-serif font-semibold leading-tight", compact ? "text-[12px]" : "text-[13px]")}>
+      <div className="flex flex-col text-left">
+        <div className={cn("min-w-0 truncate font-serif font-semibold leading-tight", compact ? "text-[12px]" : "text-[13px]")}>
           {person.name}
-        </span>
+        </div>
         {years && (
-          <span className={cn("truncate italic leading-tight text-muted-foreground", compact ? "text-[10px]" : "text-[11px]")}>
+          <div className={cn("truncate italic leading-tight text-muted-foreground", compact ? "text-[10px]" : "text-[11px]")}>
             {years}
-          </span>
+          </div>
         )}
-      </span>
+      </div>
     </button>
   );
 }
