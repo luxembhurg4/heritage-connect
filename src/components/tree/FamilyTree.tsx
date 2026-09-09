@@ -179,24 +179,24 @@ function FamilyHub({
       {/* Couple row — side-by-side at root, stacked in nested hubs to save horizontal space */}
       {depth === 0 ? (
         <div className="flex items-center justify-center gap-2">
-          <PersonCard person={person} onSelect={() => onSelect?.(person._id)} compact={false} />
+          <PersonCard person={person} onSelect={() => onSelect?.(person._id)} />
           {spouse && (
             <>
               <span className="select-none text-sm text-accent/70" title="Joined">
                 ❧
               </span>
-              <PersonCard person={spouse} onSelect={() => onSelect?.(spouse._id)} compact={false} />
+              <PersonCard person={spouse} onSelect={() => onSelect?.(spouse._id)} />
             </>
           )}
         </div>
       ) : spouse ? (
         <div className="flex flex-col items-center gap-1">
-          <PersonCard person={person} onSelect={() => onSelect?.(person._id)} compact={true} />
+          <PersonCard person={person} onSelect={() => onSelect?.(person._id)} />
           <span className="select-none text-[10px] text-accent/60">joined with</span>
-          <PersonCard person={spouse} onSelect={() => onSelect?.(spouse._id)} compact={true} />
+          <PersonCard person={spouse} onSelect={() => onSelect?.(spouse._id)} />
         </div>
       ) : (
-        <PersonCard person={person} onSelect={() => onSelect?.(person._id)} compact={true} />
+        <PersonCard person={person} onSelect={() => onSelect?.(person._id)} />
       )}
 
       {/* Children */}
@@ -214,15 +214,14 @@ function FamilyHub({
             /* Compact row for large sibling sets — chips only, no nested bubbles unless expanded */
             <div className="flex flex-wrap items-center justify-center gap-1.5">
               {childrenList.map((child) => (
-                <CompactChildChip
-                  key={child._id}
-                  child={child}
-                  hasKids={hasDescendants(child._id, people)}
-                  isExpanded={expandAll || expanded.has(child._id)}
-                  onToggle={() => onToggle(child._id)}
-                  onSelect={() => onSelect?.(child._id)}
-                  compact={depth > 0}
-                />
+              <CompactChildChip
+                key={child._id}
+                child={child}
+                hasKids={hasDescendants(child._id, people)}
+                isExpanded={expandAll || expanded.has(child._id)}
+                onToggle={() => onToggle(child._id)}
+                onSelect={() => onSelect?.(child._id)}
+              />
               ))}
             </div>
           ) : (
@@ -280,14 +279,12 @@ function CompactChildChip({
   isExpanded,
   onToggle,
   onSelect,
-  compact,
 }: {
   child: Person;
   hasKids: boolean;
   isExpanded: boolean;
   onToggle: () => void;
   onSelect: () => void;
-  compact: boolean;
 }) {
   return (
     <button
@@ -399,11 +396,9 @@ function ChildChip({
 function PersonCard({
   person,
   onSelect,
-  compact = false,
 }: {
   person: Person;
   onSelect: () => void;
-  compact?: boolean;
 }) {
   let years = "";
   if (person.birthYear && person.deathYear) {
@@ -422,24 +417,18 @@ function PersonCard({
         onSelect();
       }}
       title={person.name}
-      className={cn(
-        "group/card flex items-center gap-2 rounded-sm border bg-card shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md",
-        compact
-          ? "w-auto max-w-[200px] border-border/60 px-2 py-1.5"
-          : "w-40 border-border px-2.5 py-2 sm:w-44",
-      )}
+      className="group/card flex items-center gap-2 rounded-sm border border-border bg-card px-2.5 py-2 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
     >
       {person.imageUrl ? (
         <img
           src={person.imageUrl}
           alt={person.name}
-          className={cn("shrink-0 rounded-full border border-border object-cover", compact ? "size-6" : "size-8")}
+          className="shrink-0 rounded-full border border-border object-cover size-8"
         />
       ) : (
         <span
           className={cn(
-            "flex shrink-0 items-center justify-center rounded-full border font-serif font-bold",
-            compact ? "size-6 text-[11px]" : "size-8 text-xs",
+            "flex shrink-0 items-center justify-center rounded-full border font-serif font-bold size-8 text-xs",
             person.sex === "female"
               ? "border-accent bg-secondary text-accent-foreground"
               : "border-primary/50 bg-secondary text-primary",
@@ -449,11 +438,11 @@ function PersonCard({
         </span>
       )}
       <div className="flex flex-col text-left">
-        <div className={cn("min-w-0 truncate font-serif font-semibold leading-tight", compact ? "text-[12px]" : "text-[13px]")}>
+        <div className="min-w-0 truncate font-serif font-semibold leading-tight text-[13px]">
           {person.name}
         </div>
         {years && (
-          <div className={cn("truncate italic leading-tight text-muted-foreground", compact ? "text-[10px]" : "text-[11px]")}>
+          <div className="truncate italic leading-tight text-muted-foreground text-[11px]">
             {years}
           </div>
         )}
