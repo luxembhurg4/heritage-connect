@@ -179,24 +179,24 @@ function FamilyHub({
       {/* Couple row — side-by-side at root, stacked in nested hubs to save horizontal space */}
       {depth === 0 ? (
         <div className="flex items-center justify-center gap-2">
-          <PersonCard person={person} onSelect={() => onSelect?.(person._id)} compact={depth > 0} />
+          <PersonCard person={person} onSelect={() => onSelect?.(person._id)} compact={false} />
           {spouse && (
             <>
               <span className="select-none text-sm text-accent/70" title="Joined">
                 ❧
               </span>
-              <PersonCard person={spouse} onSelect={() => onSelect?.(spouse._id)} compact={depth > 0} />
+              <PersonCard person={spouse} onSelect={() => onSelect?.(spouse._id)} compact={false} />
             </>
           )}
         </div>
       ) : spouse ? (
         <div className="flex flex-col items-center gap-1">
-          <PersonCard person={person} onSelect={() => onSelect?.(person._id)} compact={depth > 0} />
+          <PersonCard person={person} onSelect={() => onSelect?.(person._id)} compact={true} />
           <span className="select-none text-[10px] text-accent/60">joined with</span>
-          <PersonCard person={spouse} onSelect={() => onSelect?.(spouse._id)} compact={depth > 0} />
+          <PersonCard person={spouse} onSelect={() => onSelect?.(spouse._id)} compact={true} />
         </div>
       ) : (
-        <PersonCard person={person} onSelect={() => onSelect?.(person._id)} compact={depth > 0} />
+        <PersonCard person={person} onSelect={() => onSelect?.(person._id)} compact={true} />
       )}
 
       {/* Children */}
@@ -245,21 +245,21 @@ function FamilyHub({
                       />
                     )}
                     {showHub && (
-                      <div className="mt-2 flex-shrink-0 w-[180px]">
-                        <FamilyHub
-                          person={child}
-                          spouse={partnerOf(child._id, byId, people)}
-                          parentIds={[child._id]}
-                          childrenList={childrenOf(child._id, byId, people)}
-                          expanded={expanded}
-                          expandAll={expandAll}
-                          onToggle={onToggle}
-                          onSelect={onSelect}
-                          byId={byId}
-                          people={people}
-                          depth={depth + 1}
-                        />
-                      </div>
+                    <div className="mt-2 flex-shrink-0 w-[220px]">
+                      <FamilyHub
+                        person={child}
+                        spouse={partnerOf(child._id, byId, people)}
+                        parentIds={[child._id]}
+                        childrenList={childrenOf(child._id, byId, people)}
+                        expanded={expanded}
+                        expandAll={expandAll}
+                        onToggle={onToggle}
+                        onSelect={onSelect}
+                        byId={byId}
+                        people={people}
+                        depth={depth + 1}
+                      />
+                    </div>
                     )}
                   </div>
                 );
@@ -425,7 +425,7 @@ function PersonCard({
       className={cn(
         "group/card flex items-center gap-2 rounded-sm border bg-card shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md",
         compact
-          ? "w-auto max-w-[170px] border-border/60 px-2 py-1.5"
+          ? "w-auto max-w-[200px] border-border/60 px-2 py-1.5"
           : "w-40 border-border px-2.5 py-2 sm:w-44",
       )}
     >
@@ -439,7 +439,7 @@ function PersonCard({
         <span
           className={cn(
             "flex shrink-0 items-center justify-center rounded-full border font-serif font-bold",
-            compact ? "size-6 text-[10px]" : "size-8 text-xs",
+            compact ? "size-6 text-[11px]" : "size-8 text-xs",
             person.sex === "female"
               ? "border-accent bg-secondary text-accent-foreground"
               : "border-primary/50 bg-secondary text-primary",
@@ -449,11 +449,11 @@ function PersonCard({
         </span>
       )}
       <span className="min-w-0 text-left">
-        <span className={cn("block truncate font-serif font-semibold leading-tight", compact ? "text-[11px]" : "text-[13px]")}>
+        <span className={cn("block truncate font-serif font-semibold leading-tight", compact ? "text-[12px]" : "text-[13px]")}>
           {person.name}
         </span>
         {years && (
-          <span className={cn("block truncate italic leading-tight text-muted-foreground", compact ? "text-[9px]" : "text-[11px]")}>
+          <span className={cn("block truncate italic leading-tight text-muted-foreground", compact ? "text-[10px]" : "text-[11px]")}>
             {years}
           </span>
         )}
