@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -600,6 +601,93 @@ function RelationField({
   );
 }
 
+/** Single "Parents" picker — one list, auto-routes the pick to father or
+ *  mother based on the person's recorded sex. Shows both current parents. */
+function ParentsField({
+  fatherName,
+  motherName,
+  fatherOptions,
+  motherOptions,
+  onPick,
+}: {
+  fatherName: string;
+  motherName: string;
+  fatherOptions: Person[];
+  motherOptions: Person[];
+  onPick: (id: string) => void;
+}) {
+  const bothSet = fatherName !== "" && motherName !== "";
+  return (
+    <div className="min-w-0">
+      <Label className="label-archival text-muted-foreground">Parents</Label>
+      {bothSet ? (
+        <div className="mt-1.5 flex items-center gap-2 rounded-sm border border-border bg-background/40 px-3 py-2">
+          <span className="min-w-0 flex-1 truncate font-serif text-sm">
+            {fatherName} <span className="text-muted-foreground">+</span> {motherName}
+          </span>
+          <Select onValueChange={(v) => onPick(v)}>
+            <SelectTrigger className="h-7 w-auto gap-1 border-none bg-transparent px-2 text-xs text-muted-foreground shadow-none hover:text-primary">
+              <SelectValue placeholder="Amend" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>Clear both</SelectItem>
+              {fatherOptions.map((p) => (
+                <SelectItem key={p._id} value={p._id}>
+                  {p.name} {p.birthYear ? `(${p.birthYear})` : ""}
+                </SelectItem>
+              ))}
+              {motherOptions.map((p) => (
+                <SelectItem key={p._id} value={p._id}>
+                  {p.name} {p.birthYear ? `(${p.birthYear})` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : (
+        <Select
+          value={fatherName || motherName ? (fatherName ? "_father" : "_mother") : NONE}
+          onValueChange={(v) => {
+            if (v === NONE) {
+              onPick(NONE);
+            } else if (v === "_father" && fatherOptions.length > 0) {
+              onPick(fatherOptions[0]._id);
+            } else if (v === "_mother" && motherOptions.length > 0) {
+              onPick(motherOptions[0]._id);
+            } else if (v !== "_father" && v !== "_mother") {
+              onPick(v);
+            }
+          }}
+        >
+          <SelectTrigger className="mt-1.5 w-full min-w-0 font-serif [&>span]:truncate">
+            <SelectValue placeholder="—" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE}>None recorded</SelectItem>
+            {fatherOptions.map((p) => (
+              <SelectItem key={p._id} value={p._id}>
+                {p.name}
+                {p.birthYear ? ` (${p.birthYear})` : ""}
+              </SelectItem>
+            ))}
+            {motherOptions.map((p) => (
+              <SelectItem key={p._id} value={p._id}>
+                {p.name}
+                {p.birthYear ? ` (${p.birthYear})` : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    </div>
+  );
+}
+
+function nameOf(id: string, members: Person[]): string {
+  if (!id || id === NONE) return "";
+  return members.find((m) => m._id === id)?.name ?? "";
+}
+
 function PersonDialog({
   open,
   onOpenChange,
@@ -624,6 +712,7 @@ function PersonDialog({
   );
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [showDied, setShowDied] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Re-seed the form whenever the dialog opens for a different target.
@@ -645,6 +734,7 @@ function PersonDialog({
     );
     setImageStorageId(editing?.imageStorageId ?? null);
     setPreviewUrl(editing?.imageUrl ?? null);
+    setShowDied(editing?.deathYear != null);
   }
   if (!open && prefillKey !== null) {
     setPrefillKey(null);
@@ -809,38 +899,57 @@ function PersonDialog({
                 <Label htmlFor="death-year" className="label-archival text-muted-foreground">
                   Died
                 </Label>
-                <Input
-                  id="death-year"
-                  inputMode="numeric"
-                  value={form.deathYear}
-                  onChange={(e) => set({ deathYear: e.target.value })}
-                  placeholder="—"
-                  className="mt-1.5 bg-background/60 tabular-nums"
-                />
+                {showDied ? (
+                  <Input
+                    id="death-year"
+                    inputMode="numeric"
+                    value={form.deathYear}
+                    onChange={(e) => set({ deathYear: e.target.value })}
+                    placeholder="1924"
+                    className="mt-1.5 bg-background/60 tabular-nums"
+                  />
+                ) : (
+                  <label
+                    htmlFor="died-toggle"
+                    className="mt-1.5 flex h-9 cursor-pointer items-center gap-2 rounded-sm border border-dashed border-border bg-background/40 px-3 text-xs italic text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+                  >
+                    <Checkbox
+                      id="died-toggle"
+                      checked={false}
+                      onCheckedChange={(v) => setShowDied(v === true)}
+                    />
+                    Still living — tick to record death
+                  </label>
+                )}
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <RelationField
-              label="Father"
-              value={form.fatherId}
-              onChange={(v) => set({ fatherId: v })}
-              options={fatherOptions}
-            />
-            <RelationField
-              label="Mother"
-              value={form.motherId}
-              onChange={(v) => set({ motherId: v })}
-              options={motherOptions}
-            />
-            <RelationField
-              label="Partner"
-              value={form.partnerId}
-              onChange={(v) => set({ partnerId: v })}
-              options={partnerOptions}
-            />
-          </div>
+          <ParentsField
+            fatherName={nameOf(form.fatherId, members)}
+            motherName={nameOf(form.motherId, members)}
+            fatherOptions={fatherOptions}
+            motherOptions={motherOptions}
+            onPick={(id) => {
+              const picked = members.find((m) => m._id === id);
+              if (!picked) {
+                set({ fatherId: NONE, motherId: NONE });
+                return;
+              }
+              if (picked.sex === "female") {
+                set({ motherId: id });
+              } else {
+                // Male or unrecorded — prefer the empty father slot
+                set(form.fatherId === NONE || form.fatherId === "" ? { fatherId: id } : { fatherId: id });
+              }
+            }}
+          />
+          <RelationField
+            label="Partner"
+            value={form.partnerId}
+            onChange={(v) => set({ partnerId: v })}
+            options={partnerOptions}
+          />
 
           <div>
             <Label className="label-archival text-muted-foreground">
