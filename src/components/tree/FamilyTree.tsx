@@ -453,7 +453,7 @@ function PersonCard({
           {person.name}
         </span>
         {years && (
-          <span className={cn("block truncate italic leading-tight text-muted-foreground", compact ? "text-[10px]" : "text-[11px]")}>
+          <span className={cn("mt-0.5 block w-full truncate italic leading-tight text-muted-foreground", compact ? "text-[10px]" : "text-[11px]")}>
             {years}
           </span>
         )}
