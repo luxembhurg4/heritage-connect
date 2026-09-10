@@ -574,12 +574,17 @@ function RelationField({
   value,
   onChange,
   options,
+  foreignOptions,
+  foreignLabel,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: Person[];
+  foreignOptions?: Person[];
+  foreignLabel?: string;
 }) {
+  const hasForeign = (foreignOptions?.length ?? 0) > 0;
   return (
     <div className="min-w-0">
       <Label className="label-archival text-muted-foreground">{label}</Label>
@@ -595,6 +600,19 @@ function RelationField({
               {p.birthYear ? ` (${p.birthYear})` : ""}
             </SelectItem>
           ))}
+          {hasForeign && foreignLabel && (
+            <>
+              <div className="px-2 py-1 label-archival text-[9px] tracking-[0.2em] text-muted-foreground/60">
+                FROM · {foreignLabel.toUpperCase()}
+              </div>
+              {foreignOptions!.map((p) => (
+                <SelectItem key={p._id} value={p._id}>
+                  {p.name}
+                  {p.birthYear ? ` (${p.birthYear})` : ""}
+                </SelectItem>
+              ))}
+            </>
+          )}
         </SelectContent>
       </Select>
     </div>
@@ -669,6 +687,13 @@ function PersonDialog({
   const create = useMutation(api.people.create);
   const update = useMutation(api.people.update);
   const generateUploadUrl = useMutation(api.people.generateUploadUrl);
+  const allRegisters = useQuery(api.families.listMine);
+  // Members of the user's other registers — eligible as cross-register partners.
+  const otherRegisterId = allRegisters?.find((f) => f._id !== familyId)?._id;
+  const otherMembers = useQuery(
+    api.people.listByFamily,
+    otherRegisterId ? { familyId: otherRegisterId } : "skip",
+  );
   const [form, setForm] = useState<PersonFormState>(EMPTY_FORM);
   const [prefillKey, setPrefillKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -731,6 +756,9 @@ function PersonDialog({
   }, [members]);
   const selfExcluded = editing ? new Set<string>([editing._id]) : new Set<string>();
   const partnerOptions = members.filter((m) => !selfExcluded.has(m._id));
+  const foreignPartnerOptions = (otherMembers ?? []).filter(
+    (m) => !selfExcluded.has(m._id),
+  );
 
   const handleFile = async (file?: File) => {
     if (!file) return;
@@ -905,6 +933,10 @@ function PersonDialog({
             value={form.partnerId}
             onChange={(v) => set({ partnerId: v })}
             options={partnerOptions}
+            foreignOptions={foreignPartnerOptions}
+            foreignLabel={
+              allRegisters?.find((f) => f._id === otherRegisterId)?.name
+            }
           />
 
           <div>

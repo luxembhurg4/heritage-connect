@@ -129,9 +129,9 @@ export const update = mutation({
     if (partnerId) {
       const newPartner = await ctx.db.get(partnerId);
       if (!newPartner) throw new Error("Partner not found.");
-      if (newPartner.familyId !== person.familyId) {
-        throw new Error("Partner must belong to the same register.");
-      }
+      // Cross-register partner bonds are allowed — this is how registers
+      // stitch together (a Cenabre-born spouse joined to a Mellomida).
+      // Ancestor/descendant guards still apply globally (see assertRelations).
       if (
         partnerId !== person.partnerId &&
         newPartner.partnerId &&
@@ -201,7 +201,9 @@ export const repairCycles = mutation({
           q?.fatherId === p._id || q?.motherId === p._id ||
           (await reachesAncestor(ctx, p.partnerId, p._id));
         const isAncestor = await reachesAncestor(ctx, p._id, p.partnerId);
-        if (!q || q.familyId !== familyId || isDescendant || isAncestor) {
+        // Partner bonds may cross registers — only sever if the partner no
+        // longer exists or the bond knots the lineage.
+        if (!q || isDescendant || isAncestor) {
           patch.partnerId = undefined;
           repairs++;
         } else if (q.partnerId !== p._id) {
@@ -254,7 +256,8 @@ function validateYears(
   }
 }
 
-/** Ensure relations exist, belong to this register, and create no cycles. */
+/** Ensure relations exist, belong to this register (parents only —
+ *  partners may cross registers), and create no cycles. */
 async function assertRelations(
   ctx: any,
   familyId: any,
@@ -263,7 +266,7 @@ async function assertRelations(
   motherId?: string,
   partnerId?: string,
 ): Promise<void> {
-  for (const relation of [fatherId, motherId, partnerId]) {
+  for (const relation of [fatherId, motherId]) {
     if (!relation) continue;
     if (relation === selfId) {
       throw new Error("A person cannot be related to themselves.");
@@ -271,8 +274,15 @@ async function assertRelations(
     const target = await ctx.db.get(relation as any);
     if (!target) throw new Error("Related person not found.");
     if (target.familyId !== familyId) {
-      throw new Error("Relatives must belong to the same register.");
+      throw new Error("Parents must belong to the same register.");
     }
+  }
+  if (partnerId) {
+    if (partnerId === selfId) {
+      throw new Error("A person cannot be related to themselves.");
+    }
+    const target = await ctx.db.get(partnerId as any);
+    if (!target) throw new Error("Related person not found.");
   }
   if (selfId) {
     for (const relation of [fatherId, motherId]) {

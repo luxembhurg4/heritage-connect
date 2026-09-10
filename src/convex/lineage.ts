@@ -115,6 +115,106 @@ export const allFamilyMembers = query({
   },
 });
 
+/** Fetch any people by ID, regardless of register — used by the tree to
+ *  resolve cross-register partner/parent links. */
+export const peopleByIds = query({
+  args: { ids: v.array(v.id("people")) },
+  handler: async (ctx, { ids }) => {
+    const out: ReturnType<typeof pv>[] = [];
+    for (const id of ids.slice(0, 100)) {
+      const p = await ctx.db.get(id);
+      if (p) out.push(pv(p));
+    }
+    return out;
+  },
+});
+
+/** All children of a person across EVERY register, plus the register each
+ *  child lives in. Powers the remote-branch expansion. */
+export const childrenGlobal = query({
+  args: { personId: v.id("people") },
+  handler: async (ctx, { personId }) => {
+    // by_parents_father / by_parents_mother are composite (familyId first),
+    // so gather all registers this person touches and scan those.
+    const person = await ctx.db.get(personId);
+    if (!person) return [];
+    const familyIds = new Set<Id<"families">>([person.familyId]);
+
+    // Registers where children might live: home register + partner's register.
+    if (person.partnerId) {
+      const partner = await ctx.db.get(person.partnerId);
+      if (partner) familyIds.add(partner.familyId);
+    }
+
+    const kids: (PV & { familyId: Id<"families"> })[] = [];
+    for (const familyId of familyIds) {
+      const members = await ctx.db
+        .query("people")
+        .withIndex("by_family", (q: any) => q.eq("familyId", familyId))
+        .collect();
+      for (const m of members) {
+        if (m.fatherId === personId || m.motherId === personId) {
+          kids.push({ ...pv(m), familyId: m.familyId });
+        }
+      }
+    }
+    kids.sort((a, b) => (a.birthYear ?? 9999) - (b.birthYear ?? 9999));
+    return kids;
+  },
+});
+
+/** The branch of a person in a foreign register: their spouse (same register
+ *  as the person), their children (in the branch register), and the register
+ *  itself for labeling. Used to embed e.g. the Mellomida lineage under
+ *  Engelberta when she expands inside the Cenabre tree. */
+export const remoteBranch = query({
+  args: { personId: v.id("people") },
+  handler: async (ctx, { personId }) => {
+    const person = await ctx.db.get(personId);
+    if (!person) return null;
+
+    const family = await ctx.db.get(person.familyId);
+
+    // Spouse: direct link or reverse lookup within the person's register.
+    let spouse: PV | null = null;
+    if (person.partnerId) {
+      const direct = await ctx.db.get(person.partnerId);
+      if (direct) spouse = pv(direct);
+    }
+    if (!spouse) {
+      const members = await ctx.db
+        .query("people")
+        .withIndex("by_family", (q: any) => q.eq("familyId", person.familyId))
+        .collect();
+      for (const m of members) {
+        if (m.partnerId === personId) {
+          spouse = pv(m);
+          break;
+        }
+      }
+    }
+
+    // Children: anyone in this register naming the person as father/mother.
+    const members = await ctx.db
+      .query("people")
+      .withIndex("by_family", (q: any) => q.eq("familyId", person.familyId))
+      .collect();
+    const children = members
+      .filter((m: any) => m.fatherId === personId || m.motherId === personId)
+      .sort((a: any, b: any) => (a.birthYear ?? 9999) - (b.birthYear ?? 9999))
+      .map(pv);
+
+    return {
+      person: pv(person),
+      familyId: person.familyId,
+      familyName: family?.name ?? "",
+      familySlug: family?.slug ?? "",
+      spouse,
+      children,
+    };
+  },
+});
+
 export const removeFamily = mutation({
   args: { familyId: v.id("families") },
   handler: async (ctx, { familyId }) => {
@@ -191,10 +291,9 @@ async function findParents(
   if (person.fatherId) ids.push(person.fatherId);
   if (person.motherId) ids.push(person.motherId);
   if (ids.length === 0) return [];
-  const parents = await ctx.db.getMany(ids);
-  const raw = await ctx.db.getMany(ids);
   const out: PV[] = [];
-  for (const p of raw) {
+  for (const id of ids) {
+    const p = await ctx.db.get(id);
     if (p) out.push(pv(p));
   }
   return out.sort((a: any, b: any) => (a.birthYear ?? 9999) - (b.birthYear ?? 9999));
