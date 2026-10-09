@@ -64,6 +64,19 @@ const yearOf = (s: string): number | undefined => {
   return Number.isFinite(n) ? n : undefined;
 };
 
+/** A match from the name lookup — either a local member (full Person) or the
+ *  slimmer shape returned by lineage.lookupByName (carries the register name). */
+type NameMatch = {
+  name: string;
+  sex?: "male" | "female";
+  birthYear?: number;
+  deathYear?: number;
+  fatherId?: Id<"people">;
+  motherId?: Id<"people">;
+  partnerId?: Id<"people">;
+  familyName?: string;
+};
+
 interface PersonFormState {
   name: string;
   sex: string;
@@ -702,7 +715,6 @@ function PersonDialog({
   );
   const [form, setForm] = useState<PersonFormState>(EMPTY_FORM);
   const [prefillKey, setPrefillKey] = useState<string | null>(null);
-  const [prefillDetails, setPrefillDetails] = useState<Person | null>(null);
   const [busy, setBusy] = useState(false);
   const [imageStorageId, setImageStorageId] = useState<Id<"_storage"> | null>(
     null,
@@ -712,18 +724,26 @@ function PersonDialog({
   const [showDied, setShowDied] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Auto-lookup across every register when the name changes. When a match is
-  // found, surface it as a faint "existing record" hint under the name field.
-  const existingMatch = useMemo(() => {
-    if (!form.name.trim()) return null;
+  // Case-insensitive match for the name currently typed: this register's own
+  // members first, then a lookup across every register the curator owns — so a
+  // person already recorded on another tree is caught before saving.
+  const lookup = useQuery(api.lineage.lookupByName, { name: form.name });
+  const existingMatch = useMemo<NameMatch | null>(() => {
     const needle = form.name.trim().toLowerCase();
-    for (const m of [...members, ...(otherMembers ?? [])]) {
-      if (m.name.toLowerCase() === needle) {
-        return m as Person & { familyName?: string; familySlug?: string };
-      }
+    if (!needle) return null;
+    const local = members.find(
+      (m) => m.name.toLowerCase() === needle && m._id !== editing?._id,
+    );
+    if (local) return local;
+    if (
+      lookup &&
+      lookup._id !== editing?._id &&
+      lookup.name.toLowerCase() === needle
+    ) {
+      return lookup;
     }
     return null;
-  }, [form.name, members, otherMembers]);
+  }, [form.name, members, lookup, editing]);
 
   // Re-seed the form whenever the dialog opens for a different target.
   const targetKey = editing ? `edit:${editing._id}` : "create";
@@ -879,6 +899,38 @@ function PersonDialog({
                 id="person-name"
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
+                onBlur={() => {
+                  // Auto-fill from an existing record once the curator leaves
+                  // the name field — fills only the fields still left empty.
+                  // (Side effects stay outside the state updater: React may
+                  // invoke updaters twice in StrictMode.)
+                  if (editing || !existingMatch) return;
+                  const ex = existingMatch;
+                  const localIds = new Set(members.map((m) => m._id));
+                  const patch: Partial<PersonFormState> = {};
+                  if (form.sex === NONE && ex.sex) patch.sex = ex.sex;
+                  if (!form.birthYear && ex.birthYear != null)
+                    patch.birthYear = String(ex.birthYear);
+                  if (!form.deathYear && ex.deathYear != null)
+                    patch.deathYear = String(ex.deathYear);
+                  if (form.fatherId === NONE && ex.fatherId && localIds.has(ex.fatherId))
+                    patch.fatherId = ex.fatherId;
+                  if (form.motherId === NONE && ex.motherId && localIds.has(ex.motherId))
+                    patch.motherId = ex.motherId;
+                  if (form.partnerId === NONE && ex.partnerId) {
+                    const known =
+                      localIds.has(ex.partnerId) ||
+                      (otherMembers ?? []).some((m) => m._id === ex.partnerId);
+                    if (known) patch.partnerId = ex.partnerId;
+                  }
+                  if (Object.keys(patch).length === 0) return;
+                  set({ ...patch });
+                  toast.success(
+                    `Filled from ${ex.name}'s record${
+                      ex.familyName ? ` in ${ex.familyName}` : ""
+                    }.`,
+                  );
+                }}
                 placeholder="e.g. Edmund Whitmore"
                 className="mt-1.5 bg-background/60 font-serif"
               />                {existingMatch && (
@@ -886,46 +938,41 @@ function PersonDialog({
                   <span className="inline-flex rounded-full bg-accent/10 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider uppercase text-accent-foreground">
                     Exists
                   </span>
-                  {existingMatch.name} already recorded in another register —
+                  {existingMatch.name} already recorded
+                  {existingMatch.familyName
+                    ? ` in ${existingMatch.familyName}`
+                    : " in this register"}
+                  —
                   <button
                     type="button"
                     onClick={() => {
                       const ex = existingMatch;
-                      setForm({
+                      // Parents must belong to this register — only copy them
+                      // when they live here. Partner may cross registers.
+                      const localIds = new Set(members.map((m) => m._id));
+                      const knownPartner =
+                        ex.partnerId &&
+                        (localIds.has(ex.partnerId) ||
+                          (otherMembers ?? []).some(
+                            (m) => m._id === ex.partnerId,
+                          ));
+                      setForm((prev) => ({
+                        ...prev,
                         name: ex.name,
                         sex: ex.sex ?? NONE,
                         birthYear: ex.birthYear?.toString() ?? "",
                         deathYear: ex.deathYear?.toString() ?? "",
-                        fatherId: str(ex.fatherId),
-                        motherId: str(ex.motherId),
-                        partnerId: str(ex.partnerId),
-                      });
-                      toast.success(`Copied ${ex.name}'s record into this register.`);
-                    }}
-                    className="ml-1 rounded bg-accent/15 px-1 text-[10px] font-medium text-accent-foreground transition-colors hover:bg-accent/25"
-                  >
-                    Copy record
-                  </button>
-                </p>
-              )
-                <p className="mt-1.5 flex items-center gap-1.5 text-[11px] italic text-accent">
-                  <span className="inline-flex rounded-full bg-accent/10 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider uppercase text-accent-foreground">
-                    Exists
-                  </span>
-                  {existingMatch.name} already recorded in another register —
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const ex = existingMatch;
-                      setForm({
-                        name: ex.name,
-                        sex: ex.sex ?? NONE,
-                        birthYear: ex.birthYear?.toString() ?? "",
-                        deathYear: ex.deathYear?.toString() ?? "",
-                        fatherId: str(ex.fatherId),
-                        motherId: str(ex.motherId),
-                        partnerId: str(ex.partnerId),
-                      });
+                        fatherId:
+                          ex.fatherId && localIds.has(ex.fatherId)
+                            ? ex.fatherId
+                            : NONE,
+                        motherId:
+                          ex.motherId && localIds.has(ex.motherId)
+                            ? ex.motherId
+                            : NONE,
+                        partnerId: knownPartner ? str(ex.partnerId) : NONE,
+                      }));
+                      setShowDied(ex.deathYear != null);
                       toast.success(`Copied ${ex.name}'s record into this register.`);
                     }}
                     className="ml-1 rounded bg-accent/15 px-1 text-[10px] font-medium text-accent-foreground transition-colors hover:bg-accent/25"
