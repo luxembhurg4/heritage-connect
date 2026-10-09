@@ -48,7 +48,13 @@ type Person = Doc<"people">;
 type FamilyDoc = Doc<"families">;
 
 const NONE = "__none__";
+
+
 const str = (v?: Id<"people"> | null) => v ?? NONE;
+const childIdEquals = (familyId: Id<"families">, a?: Id<"people"> | null, b?: Id<"people"> | null) => {
+  if (a == null || b == null) return false;
+  return a === b;
+};
 const unstr = (v: string): Id<"people"> | undefined =>
   v === NONE ? undefined : (v as Id<"people">);
 const yearOf = (s: string): number | undefined => {
@@ -696,6 +702,7 @@ function PersonDialog({
   );
   const [form, setForm] = useState<PersonFormState>(EMPTY_FORM);
   const [prefillKey, setPrefillKey] = useState<string | null>(null);
+  const [prefillDetails, setPrefillDetails] = useState<Person | null>(null);
   const [busy, setBusy] = useState(false);
   const [imageStorageId, setImageStorageId] = useState<Id<"_storage"> | null>(
     null,
@@ -704,6 +711,19 @@ function PersonDialog({
   const [uploading, setUploading] = useState(false);
   const [showDied, setShowDied] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Auto-lookup across every register when the name changes. When a match is
+  // found, surface it as a faint "existing record" hint under the name field.
+  const existingMatch = useMemo(() => {
+    if (!form.name.trim()) return null;
+    const needle = form.name.trim().toLowerCase();
+    for (const m of [...members, ...(otherMembers ?? [])]) {
+      if (m.name.toLowerCase() === needle) {
+        return m as Person & { familyName?: string; familySlug?: string };
+      }
+    }
+    return null;
+  }, [form.name, members, otherMembers]);
 
   // Re-seed the form whenever the dialog opens for a different target.
   const targetKey = editing ? `edit:${editing._id}` : "create";
@@ -805,6 +825,9 @@ function PersonDialog({
       toast.error("Every entry needs a name.");
       return;
     }
+    // If an existing record with this exact name was found and the user
+    // clicked "Copy record" above, their full record is already loaded. Do
+    // nothing here — the button handles the copy.
     setBusy(true);
     const payload = {
       name: form.name.trim(),
@@ -858,7 +881,59 @@ function PersonDialog({
                 onChange={(e) => set({ name: e.target.value })}
                 placeholder="e.g. Edmund Whitmore"
                 className="mt-1.5 bg-background/60 font-serif"
-              />
+              />                {existingMatch && (
+                <p className="mt-1.5 flex items-center gap-1.5 text-[11px] italic text-accent">
+                  <span className="inline-flex rounded-full bg-accent/10 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider uppercase text-accent-foreground">
+                    Exists
+                  </span>
+                  {existingMatch.name} already recorded in another register —
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const ex = existingMatch;
+                      setForm({
+                        name: ex.name,
+                        sex: ex.sex ?? NONE,
+                        birthYear: ex.birthYear?.toString() ?? "",
+                        deathYear: ex.deathYear?.toString() ?? "",
+                        fatherId: str(ex.fatherId),
+                        motherId: str(ex.motherId),
+                        partnerId: str(ex.partnerId),
+                      });
+                      toast.success(`Copied ${ex.name}'s record into this register.`);
+                    }}
+                    className="ml-1 rounded bg-accent/15 px-1 text-[10px] font-medium text-accent-foreground transition-colors hover:bg-accent/25"
+                  >
+                    Copy record
+                  </button>
+                </p>
+              )
+                <p className="mt-1.5 flex items-center gap-1.5 text-[11px] italic text-accent">
+                  <span className="inline-flex rounded-full bg-accent/10 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider uppercase text-accent-foreground">
+                    Exists
+                  </span>
+                  {existingMatch.name} already recorded in another register —
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const ex = existingMatch;
+                      setForm({
+                        name: ex.name,
+                        sex: ex.sex ?? NONE,
+                        birthYear: ex.birthYear?.toString() ?? "",
+                        deathYear: ex.deathYear?.toString() ?? "",
+                        fatherId: str(ex.fatherId),
+                        motherId: str(ex.motherId),
+                        partnerId: str(ex.partnerId),
+                      });
+                      toast.success(`Copied ${ex.name}'s record into this register.`);
+                    }}
+                    className="ml-1 rounded bg-accent/15 px-1 text-[10px] font-medium text-accent-foreground transition-colors hover:bg-accent/25"
+                  >
+                    Copy record
+                  </button>
+                </p>
+              )}
             </div>
 
             <div>

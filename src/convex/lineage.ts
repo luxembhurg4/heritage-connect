@@ -3,6 +3,46 @@ import { query, mutation } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { Id } from "./_generated/dataModel";
 
+/** Case-insensitive name lookup across every register the user owns. Used by
+ *  the entry dialog so a new name auto-fills with an existing person's data. */
+export const lookupByName = query({
+  args: { name: v.string() },
+  handler: async (ctx, { name }) => {
+    const q = name.trim().toLowerCase();
+    if (!q) return null;
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
+    const families = await ctx.db
+      .query("families")
+      .withIndex("by_creator", (f) => f.eq("createdBy", userId))
+      .collect();
+    for (const family of families) {
+      const members = await ctx.db
+        .query("people")
+        .withIndex("by_family", (m) => m.eq("familyId", family._id))
+        .collect();
+      for (const m of members) {
+        if (m.name.toLowerCase() === q) {
+          return {
+            _id: m._id,
+            name: m.name,
+            familyId: m.familyId,
+            familyName: family.name,
+            familySlug: family.slug,
+            sex: m.sex,
+            birthYear: m.birthYear,
+            deathYear: m.deathYear,
+            fatherId: m.fatherId,
+            motherId: m.motherId,
+            partnerId: m.partnerId,
+          };
+        }
+      }
+    }
+    return null;
+  },
+});
+
 const REACH_MAX = 60;
 
 /* ── public queries ─────────────────────────────────────────────── */
