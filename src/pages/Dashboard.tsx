@@ -113,6 +113,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
 
   const families = useQuery(api.families.listMine);
+  const access = useQuery(api.users.access);
   const [selectedId, setSelectedId] = useState<Id<"families"> | null>(null);
 
   // Keep selection valid if the list changes (e.g. deletion).
@@ -176,11 +177,24 @@ export default function Dashboard() {
           </p>
         </div>
 
-        {isLoading || families === undefined ? (
+        {isLoading || families === undefined || access === undefined ? (
           <div className="flex items-center justify-center py-24">
             <Loader2 className="size-6 animate-spin text-muted-foreground" />
           </div>
+        ) : !access?.approved ? (
+          <div className="frame-archive mx-auto max-w-lg rounded-sm bg-card p-10 text-center">
+            <p className="font-serif text-xl font-semibold">
+              {access?.status === "declined" ? "Request declined" : "Request sent"}
+            </p>
+            <p className="mt-3 text-sm italic leading-relaxed text-muted-foreground">
+              {access?.status === "declined"
+                ? "The register's admin hasn't granted curator access to this account."
+                : "Your request to become a curator is waiting for the admin's approval. Sign in again once you've been approved."}
+            </p>
+          </div>
         ) : (
+          <>
+          {access.isAdmin && <AccessPanel />}
           <div className="grid gap-8 lg:grid-cols-12">
             {/* Left: registers */}
             <section className="lg:col-span-5">
@@ -218,9 +232,69 @@ export default function Dashboard() {
               )}
             </section>
           </div>
+          </>
         )}
       </main>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+/** Admin only: approve or decline curator requests, remove curators. */
+function AccessPanel() {
+  const people = useQuery(api.users.accessList);
+  const setAccess = useMutation(api.users.setAccess);
+  if (!people?.length) return null;
+  const act = (userId: Id<"users">, status: "approved" | "declined", done: string) =>
+    setAccess({ userId, status }).then(
+      () => toast.success(done),
+      (err) => toast.error(err instanceof Error ? err.message : "Could not update access."),
+    );
+  const group = (status: "pending" | "approved", title: string) => {
+    const list = people.filter((p) => p.status === status);
+    if (!list.length) return null;
+    return (
+      <div>
+        <p className="label-archival mb-2 text-muted-foreground">{title}</p>
+        <ul className="divide-y divide-border rounded-sm border border-border bg-card">
+          {list.map((p) => (
+            <li key={p._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+              {p.image && <img src={p.image} alt="" className="size-8 rounded-full" />}
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-serif text-sm font-semibold">{p.name ?? p.email}</p>
+                <p className="truncate text-xs text-muted-foreground">{p.email}</p>
+              </div>
+              {status === "pending" ? (
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => act(p._id, "approved", `${p.email} can now curate.`)}>
+                    Approve
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => act(p._id, "declined", "Request declined.")}>
+                    Decline
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={() => act(p._id, "declined", `${p.email} can no longer curate.`)}
+                >
+                  Remove
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  };
+  return (
+    <section className="mb-8 space-y-4" aria-label="Curator access">
+      {group("pending", "Access requests")}
+      {group("approved", "Curators")}
+    </section>
   );
 }
 

@@ -30,6 +30,11 @@ const schema = defineSchema(
       isAnonymous: v.optional(v.boolean()), // is the user anonymous. do not remove
 
       role: v.optional(roleValidator), // role of the user. do not remove
+
+      // Curator access, decided by an admin (ADMIN_EMAILS) on the Curator's Desk.
+      curatorStatus: v.optional(
+        v.union(v.literal("pending"), v.literal("approved"), v.literal("declined")),
+      ),
     }).index("email", ["email"]), // index for the email. do not remove or modify
 
     // Public family registers (archives).

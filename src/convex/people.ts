@@ -1,7 +1,8 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { mutation, query, type QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
+import { requireCurator } from "./families";
+import { requireApproved } from "./users";
 
 const personFields = {
   name: v.string(),
@@ -18,8 +19,7 @@ const personFields = {
 export const generateUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (userId === null) throw new Error("Sign in to add photographs.");
+    await requireApproved(ctx);
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -339,12 +339,3 @@ async function reachesAncestor(
   return false;
 }
 
-async function requireCurator(ctx: any, familyId: any) {
-  const userId = await getAuthUserId(ctx);
-  if (userId === null) throw new Error("Sign in to edit this register.");
-  const family = await ctx.db.get(familyId);
-  if (!family) throw new Error("Register not found.");
-  if (family.createdBy !== userId) {
-    throw new Error("Only the register's curator may edit it.");
-  }
-}

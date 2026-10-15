@@ -3,6 +3,7 @@ import { query, mutation } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { Id } from "./_generated/dataModel";
 import { withPhoto } from "./people";
+import { requireCurator } from "./families";
 
 /** Case-insensitive name lookup across every register the user owns. Used by
  *  the entry dialog so a new name auto-fills with an existing person's data. */
@@ -220,13 +221,7 @@ export const remoteBranch = query({
 export const removeFamily = mutation({
   args: { familyId: v.id("families") },
   handler: async (ctx, { familyId }) => {
-    const family = await ctx.db.get(familyId);
-    if (!family) throw new Error("Register not found.");
-
-    const userId = await getAuthUserId(ctx);
-    if (userId !== family.createdBy) {
-      throw new Error("Only the register's curator may dissolve it.");
-    }
+    const family = await requireCurator(ctx, familyId);
 
     const members = await ctx.db
       .query("people")

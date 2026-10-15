@@ -1,6 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { requireApproved } from "./users";
 
 export const DEMO_SLUG = "whitmore-family-archive";
 
@@ -77,10 +78,7 @@ export const create = mutation({
     description: v.optional(v.string()),
   },
   handler: async (ctx, { name, description }) => {
-    const userId = await getAuthUserId(ctx);
-    if (userId === null) {
-      throw new Error("Sign in to open a new family register.");
-    }
+    const userId = await requireApproved(ctx);
     const trimmed = name.trim();
     if (!trimmed) throw new Error("Give the register a name.");
     const slug = await uniqueSlug(ctx, trimmed);
@@ -248,9 +246,9 @@ export const seedDemo = mutation({
   },
 });
 
-async function requireCurator(ctx: any, familyId: any) {
-  const userId = await getAuthUserId(ctx);
-  if (userId === null) throw new Error("Sign in to edit this register.");
+/** The signed-in, approved curator who owns this register. Throws otherwise. */
+export async function requireCurator(ctx: any, familyId: any) {
+  const userId = await requireApproved(ctx);
   const family = await ctx.db.get(familyId);
   if (!family) throw new Error("Register not found.");
   if (family.createdBy !== userId) {

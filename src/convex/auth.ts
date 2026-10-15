@@ -1,33 +1,31 @@
 import Google from "@auth/core/providers/google";
 import { convexAuth } from "@convex-dev/auth/server";
+import { isAdminEmail } from "./users";
 
-// Google sign-in only, and only for the curators the owner lists in the
-// CURATOR_EMAILS environment variable (comma-separated). Everyone else can
-// still browse the archive, which needs no account.
+// Google sign-in. Anyone may sign in, but only admins (ADMIN_EMAILS) and the
+// curators they approve can change anything; newcomers start as "pending" and
+// wait on the admin's Access panel. Browsing the archive needs no account.
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [Google],
   callbacks: {
+    // Never throw here: an error would roll back the pending request too.
     async createOrUpdateUser(ctx, { existingUserId, profile }) {
-      const email = profile.email?.toLowerCase();
-      const curators = (process.env.CURATOR_EMAILS ?? "")
-        .toLowerCase()
-        .split(/[\s,]+/)
-        .filter(Boolean);
-      if (!email || !curators.includes(email)) {
-        throw new Error(`${email ?? "This account"} is not on the curator list.`);
-      }
       if (existingUserId) return existingUserId;
+      const email = profile.email?.toLowerCase();
       // Reuse an account made earlier with the same email (keeps its registers).
-      const existing = await ctx.db
-        .query("users")
-        .filter((q) => q.eq(q.field("email"), email))
-        .first();
+      const existing = email
+        ? await ctx.db
+            .query("users")
+            .filter((q) => q.eq(q.field("email"), email))
+            .first()
+        : null;
       if (existing) return existing._id;
       return await ctx.db.insert("users", {
         email,
         name: profile.name as string | undefined,
         image: profile.image as string | undefined,
         emailVerificationTime: Date.now(),
+        curatorStatus: isAdminEmail(email) ? "approved" : "pending",
       });
     },
   },

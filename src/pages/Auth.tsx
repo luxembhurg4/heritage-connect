@@ -44,20 +44,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     }
   }, [authLoading, isAuthenticated, navigate, redirect]);
 
-  // Google sends everyone back here. A refused account (not on the curator
-  // list) comes back without a sign-in code and without a session.
-  const refused =
-    searchParams.get("from") === "google" &&
-    !searchParams.has("code") &&
-    !authLoading &&
-    !isAuthenticated;
-
   const handleGoogle = async () => {
     setIsLoading(true);
     setError(null);
     try {
       await signIn("google", {
-        redirectTo: `/auth?from=google&returnTo=${encodeURIComponent(redirect)}`,
+        redirectTo: `/auth?returnTo=${encodeURIComponent(redirect)}`,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start Google sign-in.");
@@ -82,8 +74,8 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
             </div>
             <CardTitle className="text-xl">Curator sign-in</CardTitle>
             <CardDescription>
-              Registers are open to read without an account. Signing in is for
-              curators who keep them.
+              Registers are open to read without an account. Sign in to
+              request curator access; the admin approves each curator.
             </CardDescription>
           </CardHeader>
           <CardContent className="pb-6">
@@ -101,10 +93,9 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
               )}
               Sign in with Google
             </Button>
-            {(error || refused) && (
+            {error && (
               <p className="mt-3 text-sm text-center text-red-600" role="alert">
-                {error ??
-                  "That Google account isn't on the curator list. Ask the register's owner to add your email."}
+                {error}
               </p>
             )}
           </CardContent>
