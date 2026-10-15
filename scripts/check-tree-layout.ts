@@ -4,9 +4,9 @@ import { buildLayout, NODE_HEIGHT, NODE_WIDTH, type Person } from "../src/compon
 
 const layout = (
   people: Person[],
-  { anchors = [] as Person[], branches = {}, generations = undefined as number | undefined, focus = null as string | null, opened = new Set<string>() } = {},
+  { badges = new Map<string, string>(), generations = undefined as number | undefined, focus = null as string | null, opened = new Set<string>() } = {},
 ) => {
-  const out = buildLayout(people, focus, anchors, branches, generations, opened);
+  const out = buildLayout(people, focus, badges, generations, opened);
   const node = (id: string) => out.nodes.find((n) => n.id === id);
   const at = (id: string) => node(id)!.position;
   const cards = out.nodes.filter((n) => n.type === "person");
@@ -21,7 +21,7 @@ const layout = (
   // Lines only arrive from above, one per card. A shown child with no line
   // is a lower row of a sibling box: right under a sibling, same parents.
   const lines = out.edges.filter((e) => !e.id.startsWith("m:")); // m: = between partners
-  for (const p of people.filter((p) => (p.fatherId || p.motherId) && node(p._id))) {
+  for (const p of people.filter((p) => [p.fatherId, p.motherId].some((id) => id && node(id)) && node(p._id))) {
     const into = lines.filter((e) => e.target === p._id);
     assert.ok(into.length <= 1, `${p._id} has at most one line in`);
     assert.ok(!into.some((e) => e.targetHandle), `${p._id}'s line enters from above`);
@@ -108,14 +108,47 @@ assert.ok(opened.node("g4") && opened.shown === 4, "...without changing the gene
 assert.equal(layout([{ _id: "a", name: "A", fatherId: "b" }, { _id: "b", name: "B", fatherId: "a" }]).at("a").y, 0);
 
 // Foreign spouse of a parentless anchor sits beside them, joined by ⚭.
-const anchor: Person = { _id: "x", name: "X", partnerId: "remote" };
-const out = layout([anchor], {
-  anchors: [anchor],
-  branches: { x: { familyName: "Mellomida", spouse: { _id: "remote", name: "R" } } },
-});
+const out = layout(
+  [
+    { _id: "x", name: "X", partnerId: "remote" },
+    { _id: "remote", name: "R", partnerId: "x" },
+  ],
+  { badges: new Map([["remote", "❦ Mellomida"]]) },
+);
 assert.equal(out.node("remote")?.data.badge, "❦ Mellomida");
 assert.equal(out.at("remote").y, out.at("x").y);
 assert.ok(out.at("remote").x > out.at("x").x, "local partner leads");
 assert.ok(out.edges.some((e) => e.source === "x" && e.target === "remote"));
+
+// Mellomida's view: Engelberta's parents are recorded in another register,
+// so she starts a line here with her husband, children below.
+const mell = layout([
+  { _id: "eng", name: "Engelberta", fatherId: "pa", motherId: "ma", partnerId: "hus", birthYear: 1920 },
+  { _id: "hus", name: "Husband", partnerId: "eng", birthYear: 1918 },
+  { _id: "kid", name: "Kid", fatherId: "hus", motherId: "eng" },
+]);
+assert.deepEqual([mell.at("eng").y, mell.at("hus").y], [0, 0], "parents elsewhere: a founding couple here");
+assert.ok(mell.at("kid").y > 0, "...with their children below");
+
+// Main register's view: her own family is recorded in Mellomida.
+const away = new Map(["eng", "hus", "kid", "gkid"].map((id) => [id, "❦ Mellomida"]));
+const mainPeople: Person[] = [
+  { _id: "pa", name: "Pa", partnerId: "ma" },
+  { _id: "ma", name: "Ma", partnerId: "pa" },
+  { _id: "sib", name: "Sib", fatherId: "pa", motherId: "ma" },
+  { _id: "eng", name: "Engelberta", fatherId: "pa", motherId: "ma", partnerId: "hus" },
+  { _id: "hus", name: "Husband", partnerId: "eng" },
+  { _id: "kid", name: "Kid", fatherId: "hus", motherId: "eng" },
+  { _id: "gkid", name: "Grandkid", fatherId: "kid" },
+];
+const main = layout(mainPeople, { badges: away, generations: 5 });
+assert.ok(main.node("eng") && !main.node("kid"), "a branch recorded elsewhere stays folded");
+assert.equal(main.node("hus")!.data.hidden, 2, "...saying how many wait there");
+assert.equal(main.total, 2, "the stepper counts this register's generations");
+assert.equal(main.node("eng")!.data.badge, "❦ Mellomida", "the register is named where the line enters it");
+assert.equal(main.node("hus")!.data.badge, undefined, "...once per couple");
+const branch = layout(mainPeople, { badges: away, opened: new Set(["eng"]) });
+assert.ok(branch.node("gkid"), "clicking her opens the whole branch");
+assert.equal(branch.node("kid")!.data.badge, undefined, "...without naming the register on every card");
 
 console.log("tree layout: ok");

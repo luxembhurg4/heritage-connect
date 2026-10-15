@@ -31,18 +31,6 @@ export type Person = {
   imageUrl?: string;
 };
 
-// Shape returned by the remoteBranch query.
-export type Branch =
-  | {
-      familyName: string;
-      spouse: Pick<
-        Person,
-        "_id" | "name" | "sex" | "birthYear" | "deathYear" | "imageUrl"
-      >;
-    }
-  | null
-  | undefined;
-
 export type PersonNodeData = {
   person: Person;
   focused: boolean;
@@ -57,28 +45,16 @@ export type PersonNodeData = {
 };
 
 export function buildLayout(
-  people: Person[],
+  all: Person[],
   focusId: string | null,
-  anchors: Person[],
-  branches: Record<string, Branch>,
+  // People from other registers → "❦ Register". A line that continues only
+  // among them (a branch recorded elsewhere) stays folded until opened.
+  badge: Map<string, string>,
   // Generations shown; unset picks a default from the register's depth.
   generationsShown?: number,
   // People whose whole line below is revealed, whatever the generations shown.
   opened: Set<string> = new Set(),
 ): { nodes: Node[]; edges: Edge[]; total: number; shown: number } {
-  // Cross-register spouses join the layout as parentless partners of their
-  // anchor, so they get a real slot beside them. Their own lineage stays in
-  // their register (follow the ❦ badge there).
-  const badge = new Map<string, string>();
-  const all = [...people];
-  const localIds = new Set(people.map((p) => p._id));
-  for (const anchor of anchors) {
-    const branch = branches[anchor._id];
-    if (!branch || localIds.has(branch.spouse._id) || badge.has(branch.spouse._id)) continue;
-    badge.set(branch.spouse._id, `❦ ${branch.familyName}`);
-    all.push({ ...branch.spouse, partnerId: anchor._id });
-  }
-
   const byId = new Map(all.map((p) => [p._id, p]));
   const kids = new Map<string, Person[]>();
   const partnerOf = new Map<string, string>();
@@ -91,7 +67,9 @@ export function buildLayout(
       if (!partnerOf.has(p.partnerId)) partnerOf.set(p.partnerId, p._id);
     }
   }
-  const hasParents = (p: Person) => !!(p.fatherId || p.motherId);
+  // Only parents on this tree count: someone whose parents are recorded in
+  // another register starts a line here, like a founder.
+  const hasParents = (p: Person) => byId.has(p.fatherId ?? "") || byId.has(p.motherId ?? "");
   const partner = (p: Person) => byId.get(partnerOf.get(p._id) ?? "");
   // Married-in: no recorded parents but a partner who has them. They take
   // the partner's row instead of row 0, so their children don't collapse up.
@@ -191,10 +169,13 @@ export function buildLayout(
     p = a && leadOf(a);
     if (p) focusPath.add(p._id);
   }
-  const total = Math.max(...gen.values()) + 1;
+  // The stepper counts this register's generations; other registers' open
+  // in full when their branch is opened.
+  const total = Math.max(0, ...all.filter((p) => !badge.has(p._id)).map((p) => gen.get(p._id)!)) + 1;
   const generations =
     generationsShown ?? (total <= SHOW_ALL_UP_TO ? total : DEEP_START);
   const hasBranch = (lead: Person) => !!under.get(lead._id)?.length;
+  const elsewhere = (lead: Person) => under.get(lead._id)!.every((k) => badge.has(k._id));
   // Revealed if this unit or any unit above it was opened (lead or spouse).
   const revealed = (lead: Person | undefined): boolean => {
     for (let p = lead; p; ) {
@@ -207,7 +188,7 @@ export function buildLayout(
   const folded = (lead: Person) =>
     hasBranch(lead) &&
     !focusPath.has(lead._id) &&
-    gen.get(lead._id)! >= generations - 1 &&
+    (gen.get(lead._id)! >= generations - 1 || elsewhere(lead)) &&
     !revealed(lead);
   const hidden = (lead: Person): number =>
     (under.get(lead._id) ?? []).reduce((n, k) => n + (riderOf(k) ? 2 : 1) + hidden(k), 0);
@@ -311,7 +292,9 @@ export function buildLayout(
       data: {
         person: p,
         focused: p._id === focusId,
-        badge: badge.get(p._id),
+        // Named where the line enters another register, not on every card of
+        // it (nor twice on a couple from there).
+        badge: badge.get(p._id) === badge.get((rides(p) ? partner(p) : attach(p))?._id ?? "") ? undefined : badge.get(p._id),
         part: part.get(p._id),
         spouse: card && p !== lead,
         hidden: host === p && folded(lead) ? hidden(lead) : 0,

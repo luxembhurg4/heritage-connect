@@ -1,6 +1,7 @@
 import { mutation, query, type QueryCtx } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { requireCurator } from "./families";
 import { requireApproved } from "./users";
 
@@ -43,6 +44,29 @@ export const listByFamily = query({
       .withIndex("by_family", (q) => q.eq("familyId", familyId))
       .collect();
     return await Promise.all(people.map((p) => withPhoto(ctx, p)));
+  },
+});
+
+/** Everyone in the signed-in curator's registers, with each register's name:
+ *  the people an entry may name as a parent or partner. */
+export const listMine = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return [];
+    const families = await ctx.db
+      .query("families")
+      .withIndex("by_creator", (q) => q.eq("createdBy", userId))
+      .collect();
+    const out: (Doc<"people"> & { familyName: string })[] = [];
+    for (const family of families) {
+      const members = await ctx.db
+        .query("people")
+        .withIndex("by_family", (q) => q.eq("familyId", family._id))
+        .collect();
+      out.push(...members.map((m) => ({ ...m, familyName: family.name })));
+    }
+    return out;
   },
 });
 
@@ -238,11 +262,11 @@ export const remove = mutation({
     const person = await ctx.db.get(personId);
     if (!person) throw new Error("Entry not found.");
     await requireCurator(ctx, person.familyId);
-    const members = await ctx.db
-      .query("people")
-      .withIndex("by_family", (q) => q.eq("familyId", person.familyId))
-      .collect();
-    for (const other of members) {
+    // Links can come from other registers too (children born there, spouses).
+    // shortcut: reads every person — fine to a few thousand; past that, add
+    // father/mother indexes and look the links up instead.
+    const everyone = await ctx.db.query("people").collect();
+    for (const other of everyone) {
       const patch: Record<string, any> = {};
       if (other.fatherId === personId) patch.fatherId = undefined;
       if (other.motherId === personId) patch.motherId = undefined;
@@ -268,8 +292,10 @@ function validateYears(
   }
 }
 
-/** Ensure relations exist, belong to this register (parents only —
- *  partners may cross registers), and create no cycles. */
+/** Ensure relations exist and create no cycles. Parents and partners may live
+ *  in another register (that is how registers join), but a new link there
+ *  needs its curator too, so no one grafts people onto a register they don't
+ *  keep. Links already recorded stay as they are. */
 async function assertRelations(
   ctx: any,
   familyId: any,
@@ -278,23 +304,21 @@ async function assertRelations(
   motherId?: string,
   partnerId?: string,
 ): Promise<void> {
-  for (const relation of [fatherId, motherId]) {
+  const self = selfId ? await ctx.db.get(selfId as any) : null;
+  const had = [self?.fatherId, self?.motherId, self?.partnerId];
+  for (const relation of [fatherId, motherId, partnerId]) {
     if (!relation) continue;
     if (relation === selfId) {
       throw new Error("A person cannot be related to themselves.");
     }
     const target = await ctx.db.get(relation as any);
     if (!target) throw new Error("Related person not found.");
-    if (target.familyId !== familyId) {
-      throw new Error("Parents must belong to the same register.");
+    if (target.familyId !== familyId && !had.includes(relation)) {
+      const register = await ctx.db.get(target.familyId);
+      if (register?.createdBy !== (await getAuthUserId(ctx))) {
+        throw new Error(`${target.name} is in a register you don't curate.`);
+      }
     }
-  }
-  if (partnerId) {
-    if (partnerId === selfId) {
-      throw new Error("A person cannot be related to themselves.");
-    }
-    const target = await ctx.db.get(partnerId as any);
-    if (!target) throw new Error("Related person not found.");
   }
   if (selfId) {
     for (const relation of [fatherId, motherId]) {

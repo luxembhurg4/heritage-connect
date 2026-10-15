@@ -3,7 +3,6 @@ import { useMutation, useQuery } from "convex/react";
 import Cropper, { type Area } from "react-easy-crop";
 import {
   BookOpen,
-  ChevronsUpDown,
   ImagePlus,
   Loader2,
   LogOut,
@@ -14,6 +13,7 @@ import {
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { BranchMark } from "@/components/branding";
+import { NONE, SearchField, type PickOption } from "@/components/SearchField";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,15 +37,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -58,7 +49,6 @@ import type { Doc, Id } from "../convex/_generated/dataModel";
 type Person = Doc<"people">;
 type FamilyDoc = Doc<"families">;
 
-const NONE = "__none__";
 
 
 const str = (v?: Id<"people"> | null) => v ?? NONE;
@@ -469,9 +459,11 @@ function CuratorPanel({ family }: { family: FamilyDoc }) {
   const [editing, setEditing] = useState<Person | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Person | null>(null);
 
+  // Parents and partners may be recorded in the curator's other registers.
+  const owned = useQuery(api.people.listMine);
   const byId = useMemo(
-    () => new Map((people ?? []).map((p) => [p._id, p])),
-    [people],
+    () => new Map([...(owned ?? []), ...(people ?? [])].map((p) => [p._id, p])),
+    [owned, people],
   );
 
   const nameOf = (id?: Id<"people">) => byId.get(id!)?.name ?? "—";
@@ -673,74 +665,6 @@ function CuratorPanel({ family }: { family: FamilyDoc }) {
 
 /* ------------------------------------------------------------------ */
 
-type PickOption = { value: string; label: string; group?: string };
-
-/** Searchable picker: type part of a name or a year to narrow the list. */
-function SearchField({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: PickOption[];
-  onChange: (v: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const current = options.find((o) => o.value === value);
-  const groups = [...new Set(options.map((o) => o.group ?? ""))];
-  const pick = (v: string) => {
-    onChange(v);
-    setOpen(false);
-  };
-  return (
-    <div className="min-w-0">
-      <Label className="label-archival text-muted-foreground">{label}</Label>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            role="combobox"
-            aria-expanded={open}
-            aria-label={label}
-            className="mt-1.5 w-full min-w-0 justify-between font-serif font-normal"
-          >
-            <span className="truncate">{current?.label ?? "None recorded"}</span>
-            <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
-          <Command>
-            <CommandInput placeholder="Search by name or year…" />
-            <CommandList>
-              <CommandEmpty>No one matches.</CommandEmpty>
-              <CommandGroup>
-                <CommandItem value="None recorded" onSelect={() => pick(NONE)}>
-                  None recorded
-                </CommandItem>
-              </CommandGroup>
-              {groups.map((g) => (
-                <CommandGroup key={g} heading={g || undefined}>
-                  {options
-                    .filter((o) => (o.group ?? "") === g)
-                    .map((o) => (
-                      // cmdk matches on value; the id keeps same-named people apart.
-                      <CommandItem key={o.value} value={`${o.label} ${o.value}`} onSelect={() => pick(o.value)}>
-                        {o.label}
-                      </CommandItem>
-                    ))}
-                </CommandGroup>
-              ))}
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-}
-
 /** Cuts the framed square out of a photo at 256×256 (JPEG; white behind
  *  any transparency, which JPEG can't keep). */
 async function cropToBlob(src: string, area: Area): Promise<Blob> {
@@ -778,13 +702,14 @@ function PersonDialog({
   const create = useMutation(api.people.create);
   const update = useMutation(api.people.update);
   const generateUploadUrl = useMutation(api.people.generateUploadUrl);
-  const allRegisters = useQuery(api.families.listMine);
-  // Members of the user's other registers — eligible as cross-register partners.
-  const otherRegisterId = allRegisters?.find((f) => f._id !== familyId)?._id;
-  const otherMembers = useQuery(
-    api.people.listByFamily,
-    otherRegisterId ? { familyId: otherRegisterId } : "skip",
+  // People in the curator's other registers may be named as a parent or
+  // partner here: that is how registers join into one family.
+  const owned = useQuery(api.people.listMine);
+  const otherMembers = useMemo(
+    () => owned?.filter((m) => m.familyId !== familyId) ?? [],
+    [owned, familyId],
   );
+  const everyone = [...members, ...otherMembers];
   const [form, setForm] = useState<PersonFormState>(EMPTY_FORM);
   const [prefillKey, setPrefillKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -853,54 +778,54 @@ function PersonDialog({
   const isSet = (v: string) => !!v && v !== NONE;
   const byYear = (a?: number, b?: number) => (a ?? 9999) - (b ?? 9999);
 
-  // Father / Mother: men or women (unrecorded sex stays listed) born before
-  // this person (unknown years stay listed), oldest first.
-  const older = (p: Person) => born == null || p.birthYear == null || p.birthYear < born;
-  const parentPicks = (not: "male" | "female", current: string): PickOption[] => {
-    const list: PickOption[] = members
-      .filter((m) => notSelf(m) && m.sex !== not && older(m))
-      .sort((a, b) => byYear(a.birthYear, b.birthYear))
-      .map((m) => ({ value: m._id, label: named(m) }));
-    // Keep an already-recorded parent listed even if they no longer fit.
-    const p = members.find((m) => m._id === current);
-    if (p && !list.some((o) => o.value === current)) list.unshift({ value: current, label: named(p) });
+  // This register first, then the curator's other registers, oldest first.
+  // An already-recorded choice stays listed even if it no longer fits.
+  const picks = (fit: (p: Person) => boolean, current: string): PickOption[] => {
+    const list: PickOption[] = [
+      ...members.filter(fit).sort((a, b) => byYear(a.birthYear, b.birthYear)).map((m) => ({ value: m._id, label: named(m) })),
+      ...otherMembers
+        .filter(fit)
+        .sort((a, b) => byYear(a.birthYear, b.birthYear))
+        .map((m) => ({ value: m._id, label: named(m), group: `From · ${m.familyName}` })),
+    ];
+    if (isSet(current) && !list.some((o) => o.value === current)) {
+      const p = everyone.find((m) => m._id === current);
+      list.unshift({ value: current, label: p ? named(p) : "Recorded elsewhere" });
+    }
     return list;
   };
+
+  // Father / Mother: men or women (unrecorded sex stays listed) born before
+  // this person (unknown years stay listed).
+  const older = (p: Person) => born == null || p.birthYear == null || p.birthYear < born;
+  const parentPicks = (not: "male" | "female", current: string) =>
+    picks((m) => notSelf(m) && m.sex !== not && older(m), current);
   // Picking one parent fills in the other with their recorded partner, if empty.
-  const partnerIn = (id: string) => members.find((m) => m._id === id)?.partnerId;
+  const partnerIn = (id: string) => everyone.find((m) => m._id === id)?.partnerId;
   const pickParent = (role: "fatherId" | "motherId", other: "fatherId" | "motherId", id: string) => {
     const spouse = isSet(id) ? partnerIn(id) : undefined;
     set({
       [role]: id,
-      ...(spouse && !isSet(form[other]) && members.some((m) => m._id === spouse) ? { [other]: spouse } : {}),
+      ...(spouse && !isSet(form[other]) && everyone.some((m) => m._id === spouse) ? { [other]: spouse } : {}),
     });
   };
 
   // Partner: the opposite sex (unrecorded sex stays listed), born within
   // 10 years of this person, not already partnered to someone else (picking
-  // them would unlink their spouse); the curator's other register comes after.
+  // them would unlink their spouse).
   const partnered = new Set(
-    [...members, ...(otherMembers ?? [])]
+    everyone
       .filter((m) => m.partnerId && m._id !== editing?._id)
       .flatMap((m) => [m._id as string, m.partnerId as string]),
   );
-  const fits = (p: Person) =>
-    notSelf(p) &&
-    !partnered.has(p._id) &&
-    (form.sex === NONE || !p.sex || p.sex !== form.sex) &&
-    (born == null || p.birthYear == null || Math.abs(p.birthYear - born) <= 10);
-  const otherName = allRegisters?.find((f) => f._id === otherRegisterId)?.name;
-  const partnerPicks: PickOption[] = [
-    ...members.filter(fits).sort((a, b) => byYear(a.birthYear, b.birthYear)).map((m) => ({ value: m._id, label: named(m) })),
-    ...(otherMembers ?? [])
-      .filter(fits)
-      .sort((a, b) => byYear(a.birthYear, b.birthYear))
-      .map((m) => ({ value: m._id, label: named(m), group: `From · ${otherName ?? "another register"}` })),
-  ];
-  if (isSet(form.partnerId) && !partnerPicks.some((o) => o.value === form.partnerId)) {
-    const p = [...members, ...(otherMembers ?? [])].find((m) => m._id === form.partnerId);
-    partnerPicks.unshift({ value: form.partnerId, label: p ? named(p) : "Recorded partner" });
-  }
+  const partnerPicks = picks(
+    (p) =>
+      notSelf(p) &&
+      !partnered.has(p._id) &&
+      (form.sex === NONE || !p.sex || p.sex !== form.sex) &&
+      (born == null || p.birthYear == null || Math.abs(p.birthYear - born) <= 10),
+    form.partnerId,
+  );
 
   // A chosen photo is framed first: the curator drags/zooms a square, the
   // circle inside shows what the tree displays, and only that square uploads.
@@ -963,9 +888,6 @@ function PersonDialog({
       toast.error("Every entry needs a name.");
       return;
     }
-    // If an existing record with this exact name was found and the user
-    // clicked "Copy record" above, their full record is already loaded. Do
-    // nothing here — the button handles the copy.
     setBusy(true);
     const payload = {
       name: form.name.trim(),
@@ -1017,86 +939,18 @@ function PersonDialog({
                 id="person-name"
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
-                onBlur={() => {
-                  // Auto-fill from an existing record once the curator leaves
-                  // the name field — fills only the fields still left empty.
-                  // (Side effects stay outside the state updater: React may
-                  // invoke updaters twice in StrictMode.)
-                  if (editing || !existingMatch) return;
-                  const ex = existingMatch;
-                  const localIds = new Set(members.map((m) => m._id));
-                  const patch: Partial<PersonFormState> = {};
-                  if (form.sex === NONE && ex.sex) patch.sex = ex.sex;
-                  if (!form.birthYear && ex.birthYear != null)
-                    patch.birthYear = String(ex.birthYear);
-                  if (!form.deathYear && ex.deathYear != null)
-                    patch.deathYear = String(ex.deathYear);
-                  if (form.fatherId === NONE && ex.fatherId && localIds.has(ex.fatherId))
-                    patch.fatherId = ex.fatherId;
-                  if (form.motherId === NONE && ex.motherId && localIds.has(ex.motherId))
-                    patch.motherId = ex.motherId;
-                  if (form.partnerId === NONE && ex.partnerId) {
-                    const known =
-                      localIds.has(ex.partnerId) ||
-                      (otherMembers ?? []).some((m) => m._id === ex.partnerId);
-                    if (known) patch.partnerId = ex.partnerId;
-                  }
-                  if (Object.keys(patch).length === 0) return;
-                  set({ ...patch });
-                  toast.success(
-                    `Filled from ${ex.name}'s record${
-                      ex.familyName ? ` in ${ex.familyName}` : ""
-                    }.`,
-                  );
-                }}
                 placeholder="e.g. Edmund Whitmore"
                 className="mt-1.5 bg-background/60 font-serif"
-              />                {existingMatch && (
-                <p className="mt-1.5 flex items-center gap-1.5 text-[11px] italic text-accent">
-                  <span className="inline-flex rounded-full bg-accent/10 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider uppercase text-accent-foreground">
+              />
+              {existingMatch && (
+                // One entry per person: a second copy would never join the first.
+                <p className="mt-1.5 text-[11px] italic leading-snug text-muted-foreground">
+                  <span className="mr-1.5 inline-flex rounded-full bg-accent/10 px-1.5 py-0.5 text-[9px] font-semibold not-italic tracking-wider uppercase text-accent-foreground">
                     Exists
                   </span>
-                  {existingMatch.name} already recorded
                   {existingMatch.familyName
-                    ? ` in ${existingMatch.familyName}`
-                    : " in this register"}
-                  —
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const ex = existingMatch;
-                      // Parents must belong to this register — only copy them
-                      // when they live here. Partner may cross registers.
-                      const localIds = new Set(members.map((m) => m._id));
-                      const knownPartner =
-                        ex.partnerId &&
-                        (localIds.has(ex.partnerId) ||
-                          (otherMembers ?? []).some(
-                            (m) => m._id === ex.partnerId,
-                          ));
-                      setForm((prev) => ({
-                        ...prev,
-                        name: ex.name,
-                        sex: ex.sex ?? NONE,
-                        birthYear: ex.birthYear?.toString() ?? "",
-                        deathYear: ex.deathYear?.toString() ?? "",
-                        fatherId:
-                          ex.fatherId && localIds.has(ex.fatherId)
-                            ? ex.fatherId
-                            : NONE,
-                        motherId:
-                          ex.motherId && localIds.has(ex.motherId)
-                            ? ex.motherId
-                            : NONE,
-                        partnerId: knownPartner ? str(ex.partnerId) : NONE,
-                      }));
-                      setShowDied(ex.deathYear != null);
-                      toast.success(`Copied ${ex.name}'s record into this register.`);
-                    }}
-                    className="ml-1 rounded bg-accent/15 px-1 text-[10px] font-medium text-accent-foreground transition-colors hover:bg-accent/25"
-                  >
-                    Copy record
-                  </button>
+                    ? `${existingMatch.name} is already recorded in ${existingMatch.familyName}. Link to that entry instead of adding a second one: pick them as a parent or partner here, or amend their entry there and pick their parents from this register.`
+                    : `${existingMatch.name} is already in this register.`}
                 </p>
               )}
             </div>

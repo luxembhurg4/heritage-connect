@@ -1,10 +1,13 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
-import { ArrowLeft, ListTree, Share2, Table2 } from "lucide-react";
+import type { FunctionReturnType } from "convex/server";
+import { ArrowLeft, ListTree, Route, Share2, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import { Link, useParams } from "react-router";
 import FamilyTreeCanvas from "@/components/FamilyTreeCanvas";
 import { PublicNav } from "@/components/branding";
+import { SearchField, type PickOption } from "@/components/SearchField";
+import { relate } from "@/lib/kinship";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +22,13 @@ import { api } from "../convex/_generated/api";
 import type { Doc, Id } from "../convex/_generated/dataModel";
 
 type Person = Doc<"people">;
+type Linked = FunctionReturnType<typeof api.lineage.linked>;
+
+const VIEWS = [
+  { id: "tree", Icon: ListTree, text: "Tree", title: "Show the family tree" },
+  { id: "ledger", Icon: Table2, text: "Ledger", title: "Show the full ledger" },
+  { id: "kinship", Icon: Route, text: "Kinship", title: "Find how two people are related" },
+] as const;
 
 export default function FamilyTreePage() {
   const { slug } = useParams<{ slug: string }>();
@@ -27,10 +37,16 @@ export default function FamilyTreePage() {
     api.people.listByFamily,
     family ? { familyId: family._id } : "skip",
   );
+  // Registers joined to this one: branches to open on the tree, people for
+  // the kinship finder, names of parents recorded elsewhere.
+  const linked = useQuery(
+    api.lineage.linked,
+    family ? { familyId: family._id } : "skip",
+  );
 
   const [focusChoice, setFocusChoice] = useState<Id<"people"> | null>(null);
   const [ledgerFilter, setLedgerFilter] = useState("");
-  const [view, setView] = useState<"tree" | "ledger">("tree");
+  const [view, setView] = useState<(typeof VIEWS)[number]["id"]>("tree");
 
   // Default focus is derived (eldest forebear) rather than set in an effect —
   // no cascade render, and an explicit choice always wins.
@@ -118,34 +134,24 @@ export default function FamilyTreePage() {
             <ArrowLeft className="size-5" />
           </Link>
           <div className="flex shrink-0 items-center rounded-sm border border-border bg-card p-0.5">
-            <button
-              type="button"
-              onClick={() => setView("tree")}
-              className={cn(
-                "flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-xs font-medium transition-colors",
-                view === "tree"
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-              )}
-              title="Show the family tree"
-            >
-              <ListTree className="size-4" />
-              Tree
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("ledger")}
-              className={cn(
-                "flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-xs font-medium transition-colors",
-                view === "ledger"
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-              )}
-              title="Show the full ledger"
-            >
-              <Table2 className="size-4" />
-              Ledger
-            </button>
+            {VIEWS.map(({ id, Icon, text, title }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setView(id)}
+                aria-pressed={view === id}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-xs font-medium transition-colors",
+                  view === id
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                )}
+                title={title}
+              >
+                <Icon className="size-4" />
+                {text}
+              </button>
+            ))}
           </div>
           <div className="min-w-0 text-center sm:text-left">
             <h1 className="font-serif text-xl font-bold tracking-tight sm:text-2xl">
@@ -197,7 +203,7 @@ export default function FamilyTreePage() {
 
           <div className="flex items-center gap-3">
             <p className="hidden text-[10px] italic text-muted-foreground md:block">
-              ⚭ married · click a name to re-centre · wheel or pinch to zoom
+              ⚭ married · ❦ from a joined register · click a name to open their line · double-click to centre
             </p>
           </div>
         </div>
@@ -216,10 +222,13 @@ export default function FamilyTreePage() {
             {/* Tree canvas — needs a definite height for React Flow */}
             <FamilyTreeCanvas
               people={people}
+              linked={linked}
               focusId={focusId}
               onFocusChange={(id) => setFocusChoice(id as Id<"people">)}
             />
           </div>
+        ) : view === "kinship" ? (
+          <KinshipPanel linked={linked} homeId={family._id} />
         ) : (
           <div className="w-full px-6 pb-8 pt-6">
             {/* Ledger */}
@@ -282,17 +291,17 @@ export default function FamilyTreePage() {
                           </td>
                           <td className="hidden px-3 py-2 text-xs text-muted-foreground sm:table-cell">
                             {person.fatherId
-                              ? lookupName(person.fatherId!, people)
+                              ? lookupName(person.fatherId!, linked?.people ?? people)
                               : "—"}
                           </td>
                           <td className="hidden px-3 py-2 text-xs text-muted-foreground sm:table-cell">
                             {person.motherId
-                              ? lookupName(person.motherId!, people)
+                              ? lookupName(person.motherId!, linked?.people ?? people)
                               : "—"}
                           </td>
                           <td className="hidden px-3 py-2 text-xs text-muted-foreground md:table-cell">
                             {person.partnerId
-                              ? lookupName(person.partnerId!, people)
+                              ? lookupName(person.partnerId!, linked?.people ?? people)
                               : "—"}
                           </td>
                         </tr>
@@ -301,6 +310,74 @@ export default function FamilyTreePage() {
                   </table>
                 </div>
               </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Pick two people; says how the first is related to the second and who
+ *  joins them, across this register and the ones joined to it. */
+function KinshipPanel({ linked, homeId }: { linked: Linked | undefined; homeId: Id<"families"> }) {
+  const [a, setA] = useState("");
+  const [b, setB] = useState("");
+  const options = useMemo<PickOption[]>(() => {
+    if (!linked) return [];
+    const register = new Map(linked.families.map((f) => [f._id, f.name]));
+    const home = (p: Person) => (p.familyId === homeId ? 0 : 1);
+    return [...linked.people]
+      .sort((x, y) => home(x) - home(y) || x.name.localeCompare(y.name))
+      .map((p) => ({
+        value: p._id,
+        label: `${p.name}${p.birthYear ? ` (${p.birthYear})` : ""}`,
+        group: home(p) ? `From · ${register.get(p.familyId)}` : undefined,
+      }));
+  }, [linked, homeId]);
+  const result = useMemo(
+    () => (linked && a && b && a !== b ? relate(linked.people, b, a) : null),
+    [linked, a, b],
+  );
+  const nameOf = (id: string) => linked?.people.find((p) => p._id === id)?.name;
+
+  return (
+    <div className="mx-auto w-full max-w-2xl px-6 py-8">
+      <h2 className="font-serif text-xl font-semibold">How are they related?</h2>
+      <p className="mt-1 text-sm italic text-muted-foreground">
+        Pick two people from this register or one joined to it.
+      </p>
+      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+        <SearchField label="Person" value={a} options={options} onChange={setA} placeholder={linked ? "Choose someone…" : "Loading…"} />
+        <SearchField label="Related to" value={b} options={options} onChange={setB} placeholder={linked ? "Choose someone…" : "Loading…"} />
+      </div>
+      <div aria-live="polite">
+        {a && b && (
+          <div className="frame-archive mt-8 rounded-sm bg-card p-6">
+            {a === b ? (
+              <p className="font-serif text-lg">That's the same person.</p>
+            ) : !result ? (
+              <p className="font-serif text-lg">
+                No recorded line joins {nameOf(a)} and {nameOf(b)}.
+              </p>
+            ) : (
+              <>
+                <p className="font-serif text-lg">
+                  <strong>{nameOf(a)}</strong> is <strong>{nameOf(b)}</strong>'s {result.phrase}.
+                </p>
+                <ol className="mt-5 space-y-2 border-l-2 border-border pl-4" aria-label="Who joins them">
+                  {result.path.map((link, i) => (
+                    <li key={i}>
+                      <span className="font-serif font-medium">{link.person.name}</span>
+                      {link.word && (
+                        <span className="text-sm italic text-muted-foreground">
+                          {" "}— {result.path[i - 1].person.name}'s {link.word}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              </>
             )}
           </div>
         )}

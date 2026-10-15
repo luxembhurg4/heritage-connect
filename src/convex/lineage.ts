@@ -1,9 +1,8 @@
 import { v } from "convex/values";
-import { query, mutation } from "./_generated/server";
+import { query } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { Id } from "./_generated/dataModel";
 import { withPhoto } from "./people";
-import { requireCurator } from "./families";
 
 /** Case-insensitive name lookup across every register the user owns. Used by
  *  the entry dialog so a new name auto-fills with an existing person's data. */
@@ -157,80 +156,39 @@ export const allFamilyMembers = query({
   },
 });
 
-/** Fetch any people by ID, regardless of register — used by the tree to
- *  resolve cross-register partner/parent links. */
-export const peopleByIds = query({
-  args: { ids: v.array(v.id("people")) },
-  handler: async (ctx, { ids }) => {
-    const out: ReturnType<typeof pv>[] = [];
-    for (const id of ids.slice(0, 100)) {
-      const p = await ctx.db.get(id);
-      if (p) out.push(pv(p));
-    }
-    return out;
-  },
-});
-
-/** All children of a person across EVERY register, plus the register each
- *  child lives in. Powers the remote-branch expansion. */
-export const childrenGlobal = query({
-  args: { personId: v.id("people") },
-  handler: async (ctx, { personId }) => {
-    // by_parents_father / by_parents_mother are composite (familyId first),
-    // so gather all registers this person touches and scan those.
-    const person = await ctx.db.get(personId);
-    if (!person) return [];
-    const familyIds = new Set<Id<"families">>([person.familyId]);
-
-    // Registers where children might live: home register + partner's register.
-    if (person.partnerId) {
-      const partner = await ctx.db.get(person.partnerId);
-      if (partner) familyIds.add(partner.familyId);
-    }
-
-    const kids: (PV & { familyId: Id<"families"> })[] = [];
-    for (const familyId of familyIds) {
-      const members = await ctx.db
-        .query("people")
-        .withIndex("by_family", (q: any) => q.eq("familyId", familyId))
-        .collect();
-      for (const m of members) {
-        if (m.fatherId === personId || m.motherId === personId) {
-          kids.push({ ...pv(m), familyId: m.familyId });
-        }
-      }
-    }
-    kids.sort((a, b) => (a.birthYear ?? 9999) - (b.birthYear ?? 9999));
-    return kids;
-  },
-});
-
-/** The cross-register spouse of a person, labelled with the spouse's own
- *  register for the tree canvas's ❦ badge. */
-export const remoteBranch = query({
-  args: { personId: v.id("people") },
-  handler: async (ctx, { personId }) => {
-    const person = await ctx.db.get(personId);
-    const spouse = person?.partnerId ? await ctx.db.get(person.partnerId) : null;
-    if (!spouse) return null;
-    const family = await ctx.db.get(spouse.familyId);
-    return { familyName: family?.name ?? "", spouse: pv(await withPhoto(ctx, spouse)) };
-  },
-});
-
-export const removeFamily = mutation({
+/** This register plus every register joined to it through people (a spouse
+ *  from elsewhere, a child recorded in another register), with each
+ *  register's name: the tree opens those branches and the kinship finder
+ *  searches them. */
+export const linked = query({
   args: { familyId: v.id("families") },
   handler: async (ctx, { familyId }) => {
-    const family = await requireCurator(ctx, familyId);
-
-    const members = await ctx.db
-      .query("people")
-      .withIndex("by_family", (q) => q.eq("familyId", familyId))
-      .collect();
-    for (const p of members) {
-      await ctx.db.delete(p._id);
+    // shortcut: reads every person — fine to a few thousand; past that, walk
+    // father/mother indexes register by register instead.
+    const everyone = await ctx.db.query("people").collect();
+    const registerOf = new Map(everyone.map((p) => [p._id as string, p.familyId]));
+    const joined = new Map<Id<"families">, Set<Id<"families">>>();
+    const join = (a: Id<"families">, b: Id<"families">) =>
+      joined.set(a, (joined.get(a) ?? new Set()).add(b));
+    for (const p of everyone) {
+      for (const id of [p.fatherId, p.motherId, p.partnerId]) {
+        const other = id && registerOf.get(id);
+        if (!other || other === p.familyId) continue;
+        join(p.familyId, other);
+        join(other, p.familyId);
+      }
     }
-    await ctx.db.delete(familyId);
+    const reach = new Set([familyId]);
+    for (const id of reach) for (const next of joined.get(id) ?? []) reach.add(next);
+    const families = [];
+    for (const id of reach) {
+      const f = await ctx.db.get(id);
+      if (f) families.push({ _id: f._id, name: f.name, slug: f.slug });
+    }
+    const people = await Promise.all(
+      everyone.filter((p) => reach.has(p.familyId)).map((p) => withPhoto(ctx, p)),
+    );
+    return { families, people };
   },
 });
 

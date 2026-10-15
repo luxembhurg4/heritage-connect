@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQueries } from "convex/react";
 import { Maximize2, Minimize2 } from "lucide-react";
 import ReactFlow, {
   Background,
@@ -13,15 +12,12 @@ import ReactFlow, {
   type ReactFlowInstance,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { api } from "@/convex/_generated/api";
 import ring from "@/assets/couple-ring.png";
-import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 import {
   buildLayout,
   NODE_HEIGHT,
   NODE_WIDTH,
-  type Branch,
   type Person,
   type PersonNodeData,
 } from "./treeLayout";
@@ -33,50 +29,72 @@ const nodeTypes = { person: PersonNode, union: UnionNode };
 
 interface FamilyTreeCanvasProps {
   people: Person[];
+  // This register and the ones joined to it (lineage.linked), once loaded.
+  linked?: {
+    families: { _id: string; name: string }[];
+    people: (Person & { familyId: string })[];
+  };
   focusId: string | null;
   onFocusChange?: (id: string) => void;
 }
 
 export default function FamilyTreeCanvas({
   people,
+  linked,
   focusId,
   onFocusChange,
 }: FamilyTreeCanvasProps) {
-  // Cross-register partners: fetch each foreign spouse and place them
-  // beside the anchor with a ❦ badge naming their register.
   const localIds = useMemo(() => new Set(people.map((p) => p._id)), [people]);
-  const foreignAnchors = useMemo(
-    () => people.filter((p) => p.partnerId && !localIds.has(p.partnerId)),
-    [people, localIds],
-  );
-  // Memoized so useQueries keeps one subscription and a stable result.
-  const branchQueries = useMemo(
-    () =>
-      Object.fromEntries(
-        foreignAnchors.map((p) => [
-          p._id,
-          { query: api.lineage.remoteBranch, args: { personId: p._id as Id<"people"> } },
-        ]),
-      ),
-    [foreignAnchors],
-  );
-  const branches = useQueries(branchQueries) as Record<string, Branch>;
+  // From other registers: spouses who married in, and everyone descended
+  // from this register (with their spouses). Their lines fold until a card
+  // is clicked; ancestors recorded elsewhere stay in their own register.
+  const { all, badges } = useMemo(() => {
+    const badges = new Map<string, string>();
+    if (!linked) return { all: people, badges };
+    const byId = new Map(linked.people.map((p) => [p._id, p]));
+    const kids = new Map<string, Person[]>();
+    for (const p of linked.people)
+      for (const id of [p.fatherId, p.motherId]) if (id) kids.set(id, [...(kids.get(id) ?? []), p]);
+    const keep = new Map(people.map((p) => [p._id, p]));
+    const queue = [...people];
+    const add = (p?: Person) => {
+      if (!p || keep.has(p._id)) return;
+      keep.set(p._id, p);
+      queue.push(p);
+    };
+    for (let i = 0; i < queue.length; i++) {
+      add(byId.get(queue[i].partnerId ?? ""));
+      kids.get(queue[i]._id)?.forEach(add);
+    }
+    const register = new Map(linked.families.map((f) => [f._id, f.name]));
+    for (const p of keep.values())
+      if (!localIds.has(p._id)) badges.set(p._id, `❦ ${register.get(byId.get(p._id)!.familyId) ?? ""}`);
+    return { all: [...keep.values()], badges };
+  }, [people, linked, localIds]);
 
   // Unset = the layout picks a default from the register's depth. Clicking
   // a card reveals everything below that person; the stepper resets that.
   const [generations, setGenerations] = useState<number>();
   const [opened, setOpened] = useState(() => new Set<string>());
   const { nodes, edges, total, shown } = useMemo(
-    () => buildLayout(people, focusId, foreignAnchors, branches, generations, opened),
-    [people, focusId, foreignAnchors, branches, generations, opened],
+    () => buildLayout(all, focusId, badges, generations, opened),
+    [all, focusId, badges, generations, opened],
   );
+  // Fit the tree once React Flow has measured newly shown cards.
+  // shortcut: fixed 50 ms wait for measuring — upgrade to useNodesInitialized
+  // if the tree is ever wrapped in a ReactFlowProvider.
+  const refit = () => window.setTimeout(() => flow?.fitView({ maxZoom: 1, duration: 300 }), 50);
   const step = (n: number) => {
     setGenerations(n);
     setOpened(new Set());
-    // Fit the new set of generations once React Flow has measured the cards.
-    // shortcut: fixed 50 ms wait for measuring — upgrade to useNodesInitialized
-    // if the tree is ever wrapped in a ReactFlowProvider.
-    window.setTimeout(() => flow?.fitView({ maxZoom: 1, duration: 300 }), 50);
+    refit();
+  };
+  // Clicking a card reveals everything below it; when that shows more
+  // people (e.g. a branch recorded in another register), fit them in.
+  const open = (id: string) => {
+    const partnerId = (nodes.find((n) => n.id === id)?.data as PersonNodeData | undefined)?.person.partnerId;
+    if (nodes.some((n) => (n.id === id || n.id === partnerId) && (n.data as PersonNodeData).hidden)) refit();
+    setOpened((s) => new Set(s).add(id));
   };
 
   // fitView only runs on init. Picking a name in "Centre upon" centres on
@@ -177,7 +195,7 @@ export default function FamilyTreeCanvas({
         onNodeClick={(_, node) => {
           pick(node.id);
           setPlainFor(null);
-          setOpened((s) => new Set(s).add(node.id));
+          open(node.id);
         }}
         onNodeDoubleClick={(_, node) => centre(node.id)}
         onPaneClick={() => setPlainFor(focusId)}
@@ -324,7 +342,7 @@ function PersonNode({ data }: NodeProps<PersonNodeData>) {
           <div className="truncate text-[11px] italic leading-tight text-muted-foreground">
             {years}
             {badge && (
-              <span className="not-italic text-[9px] tracking-widest text-accent">
+              <span className="not-italic text-[9px] tracking-widest text-primary">
                 {years && " · "}
                 {badge}
               </span>

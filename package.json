@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types scripts/check-tree-layout.ts"
+    "test": "node --experimental-strip-types scripts/check-tree-layout.ts && node --experimental-strip-types scripts/check-kinship.ts"
   },
   "dependencies": {
     "@convex-dev/auth": "^0.0.90",

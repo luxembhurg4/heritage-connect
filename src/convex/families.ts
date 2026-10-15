@@ -117,6 +117,18 @@ export const remove = mutation({
       .query("people")
       .withIndex("by_family", (q) => q.eq("familyId", familyId))
       .collect();
+    const gone = new Set<string>(members.map((p) => p._id));
+    // Unlink people in other registers who point here (children recorded
+    // there, spouses), so their entries don't keep a link to no one.
+    // shortcut: reads every person — fine to a few thousand.
+    for (const p of await ctx.db.query("people").collect()) {
+      if (gone.has(p._id)) continue;
+      const patch: Record<string, undefined> = {};
+      for (const key of ["fatherId", "motherId", "partnerId"] as const) {
+        if (p[key] && gone.has(p[key])) patch[key] = undefined;
+      }
+      if (Object.keys(patch).length > 0) await ctx.db.patch(p._id, patch);
+    }
     for (const person of members) {
       await ctx.db.delete(person._id);
     }
