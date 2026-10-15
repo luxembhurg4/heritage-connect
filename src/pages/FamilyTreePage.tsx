@@ -176,38 +176,40 @@ export default function FamilyTreePage() {
         </div>
       </header>
 
-      {/* ── Toolbar ─────────────────────────────────────────── */}
-      <div className="z-20 shrink-0 border-b border-border/40 bg-background/80 backdrop-blur-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2 px-6 py-2">
-          <div className="flex items-center gap-2">
-            <span className="label-archival text-muted-foreground">
-              Centre upon
-            </span>
-            <Select
-              value={focusId ?? ""}
-              onValueChange={(v) => setFocusChoice(v as Id<"people">)}
-            >
-              <SelectTrigger className="w-52 font-serif">
-                <SelectValue placeholder="Choose a soul…" />
-              </SelectTrigger>
-              <SelectContent>
-                {sorted.map((p) => (
-                  <SelectItem key={p._id} value={p._id}>
-                    {p.name}
-                    {p.birthYear ? ` (${p.birthYear})` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <p className="hidden text-[10px] italic text-muted-foreground md:block">
-              ⚭ married · ❦ from a joined register · click a name to open their line · double-click to centre
-            </p>
+      {/* ── Toolbar (tree only) ─────────────────────────────── */}
+      {view === "tree" && (
+        <div className="z-20 shrink-0 border-b border-border/40 bg-background/80 backdrop-blur-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-6 py-2">
+            <div className="flex items-center gap-2">
+              <span className="label-archival text-muted-foreground">
+                Centre upon
+              </span>
+              <Select
+                value={focusId ?? ""}
+                onValueChange={(v) => setFocusChoice(v as Id<"people">)}
+              >
+                <SelectTrigger className="w-52 font-serif">
+                  <SelectValue placeholder="Choose a soul…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sorted.map((p) => (
+                    <SelectItem key={p._id} value={p._id}>
+                      {p.name}
+                      {p.birthYear ? ` (${p.birthYear})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+  
+            <div className="flex items-center gap-3">
+              <p className="hidden text-[10px] italic text-muted-foreground md:block">
+                ⚭ married · ❦ from a joined register · click a name to open their line · double-click to centre
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ── Body: tree + ledger ─────────────────────────────── */}
       <div className="relative flex-1 overflow-auto bg-card/30">
