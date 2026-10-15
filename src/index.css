@@ -190,3 +190,18 @@
       radial-gradient(circle 70px at 94% 88%, color-mix(in oklab, var(--accent) 16%, transparent), transparent 70%);
   }
 }
+
+/* Family tree: controls fade after the canvas sits idle (FamilyTreeCanvas),
+   but a control with keyboard focus stays visible. */
+.tree-canvas .react-flow__panel {
+  transition: opacity 300ms;
+}
+.tree-canvas[data-idle="true"] .react-flow__panel:not(:focus-within) {
+  opacity: 0;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tree-canvas .react-flow__panel {
+    transition: none;
+  }
+}

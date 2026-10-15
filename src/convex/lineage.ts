@@ -203,55 +203,16 @@ export const childrenGlobal = query({
   },
 });
 
-/** The branch of a person in a foreign register: their spouse (same register
- *  as the person), their children (in the branch register), and the register
- *  itself for labeling. Used to embed e.g. the Mellomida lineage under
- *  Engelberta when she expands inside the Cenabre tree. */
+/** The cross-register spouse of a person, labelled with the spouse's own
+ *  register for the tree canvas's ❦ badge. */
 export const remoteBranch = query({
   args: { personId: v.id("people") },
   handler: async (ctx, { personId }) => {
     const person = await ctx.db.get(personId);
-    if (!person) return null;
-
-    const family = await ctx.db.get(person.familyId);
-
-    // Spouse: direct link or reverse lookup within the person's register.
-    let spouse: PV | null = null;
-    if (person.partnerId) {
-      const direct = await ctx.db.get(person.partnerId);
-      if (direct) spouse = pv(direct);
-    }
-    if (!spouse) {
-      const members = await ctx.db
-        .query("people")
-        .withIndex("by_family", (q: any) => q.eq("familyId", person.familyId))
-        .collect();
-      for (const m of members) {
-        if (m.partnerId === personId) {
-          spouse = pv(m);
-          break;
-        }
-      }
-    }
-
-    // Children: anyone in this register naming the person as father/mother.
-    const members = await ctx.db
-      .query("people")
-      .withIndex("by_family", (q: any) => q.eq("familyId", person.familyId))
-      .collect();
-    const children = members
-      .filter((m: any) => m.fatherId === personId || m.motherId === personId)
-      .sort((a: any, b: any) => (a.birthYear ?? 9999) - (b.birthYear ?? 9999))
-      .map(pv);
-
-    return {
-      person: pv(person),
-      familyId: person.familyId,
-      familyName: family?.name ?? "",
-      familySlug: family?.slug ?? "",
-      spouse,
-      children,
-    };
+    const spouse = person?.partnerId ? await ctx.db.get(person.partnerId) : null;
+    if (!spouse) return null;
+    const family = await ctx.db.get(spouse.familyId);
+    return { familyName: family?.name ?? "", spouse: pv(spouse) };
   },
 });
 

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import Cropper, { type Area } from "react-easy-crop";
 import {
   BookOpen,
+  ChevronsUpDown,
   ImagePlus,
   Loader2,
   LogOut,
@@ -34,6 +36,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -588,105 +599,92 @@ function CuratorPanel({ family }: { family: FamilyDoc }) {
 
 /* ------------------------------------------------------------------ */
 
-function RelationField({
+type PickOption = { value: string; label: string; group?: string };
+
+/** Searchable picker: type part of a name or a year to narrow the list. */
+function SearchField({
   label,
   value,
-  onChange,
   options,
-  foreignOptions,
-  foreignLabel,
+  onChange,
 }: {
   label: string;
   value: string;
+  options: PickOption[];
   onChange: (v: string) => void;
-  options: Person[];
-  foreignOptions?: Person[];
-  foreignLabel?: string;
 }) {
-  const hasForeign = (foreignOptions?.length ?? 0) > 0;
+  const [open, setOpen] = useState(false);
+  const current = options.find((o) => o.value === value);
+  const groups = [...new Set(options.map((o) => o.group ?? ""))];
+  const pick = (v: string) => {
+    onChange(v);
+    setOpen(false);
+  };
   return (
     <div className="min-w-0">
       <Label className="label-archival text-muted-foreground">{label}</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="mt-1.5 w-full min-w-0 font-serif [&>span]:truncate">
-          <SelectValue placeholder="—" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={NONE}>None recorded</SelectItem>
-          {options.map((p) => (
-            <SelectItem key={p._id} value={p._id}>
-              {p.name}
-              {p.birthYear ? ` (${p.birthYear})` : ""}
-            </SelectItem>
-          ))}
-          {hasForeign && foreignLabel && (
-            <>
-              <div className="px-2 py-1 label-archival text-[9px] tracking-[0.2em] text-muted-foreground/60">
-                FROM · {foreignLabel.toUpperCase()}
-              </div>
-              {foreignOptions!.map((p) => (
-                <SelectItem key={p._id} value={p._id}>
-                  {p.name}
-                  {p.birthYear ? ` (${p.birthYear})` : ""}
-                </SelectItem>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            aria-label={label}
+            className="mt-1.5 w-full min-w-0 justify-between font-serif font-normal"
+          >
+            <span className="truncate">{current?.label ?? "None recorded"}</span>
+            <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
+          <Command>
+            <CommandInput placeholder="Search by name or year…" />
+            <CommandList>
+              <CommandEmpty>No one matches.</CommandEmpty>
+              <CommandGroup>
+                <CommandItem value="None recorded" onSelect={() => pick(NONE)}>
+                  None recorded
+                </CommandItem>
+              </CommandGroup>
+              {groups.map((g) => (
+                <CommandGroup key={g} heading={g || undefined}>
+                  {options
+                    .filter((o) => (o.group ?? "") === g)
+                    .map((o) => (
+                      // cmdk matches on value; the id keeps same-named people apart.
+                      <CommandItem key={o.value} value={`${o.label} ${o.value}`} onSelect={() => pick(o.value)}>
+                        {o.label}
+                      </CommandItem>
+                    ))}
+                </CommandGroup>
               ))}
-            </>
-          )}
-        </SelectContent>
-      </Select>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
 
-/** Single "Parents" picker — lists partnered couples as one unit.
- *  Choosing a couple assigns father and mother in one step. */
-function ParentsField({
-  fatherId,
-  motherId,
-  couples,
-  onPickCouple,
-  onClear,
-}: {
-  fatherId: string;
-  motherId: string;
-  couples: { key: string; father: Person; mother: Person }[];
-  onPickCouple: (fatherId: string, motherId: string) => void;
-  onClear: () => void;
-}) {
-  const currentKey =
-    couples.find((c) => c.father._id === fatherId && c.mother._id === motherId)?.key ??
-    couples.find((c) => c.father._id === fatherId || c.mother._id === motherId)?.key ??
-    NONE;
-  const hasAny =
-    (fatherId !== NONE && fatherId !== "") ||
-    (motherId !== NONE && motherId !== "");
-  return (
-    <div className="min-w-0">
-      <Label className="label-archival text-muted-foreground">Parents</Label>
-      <Select
-        value={hasAny ? currentKey : NONE}
-        onValueChange={(v) => {
-          if (v === NONE) {
-            onClear();
-            return;
-          }
-          const couple = couples.find((c) => c.key === v);
-          if (couple) onPickCouple(couple.father._id, couple.mother._id);
-        }}
-      >
-        <SelectTrigger className="mt-1.5 w-full min-w-0 font-serif [&>span]:truncate">
-          <SelectValue placeholder="—" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={NONE}>None recorded</SelectItem>
-          {couples.map((c) => (
-            <SelectItem key={c.key} value={c.key}>
-              {c.father.name} ⚭ {c.mother.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
+/** Cuts the framed square out of a photo at 256×256 (JPEG; white behind
+ *  any transparency, which JPEG can't keep). */
+async function cropToBlob(src: string, area: Area): Promise<Blob> {
+  const img = new Image();
+  img.src = src;
+  await img.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 256;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, 256, 256);
+  ctx.drawImage(img, area.x, area.y, area.width, area.height, 0, 0, 256, 256);
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("The photograph could not be prepared."))),
+      "image/jpeg",
+      0.9,
+    ),
   );
 }
 
@@ -722,6 +720,10 @@ function PersonDialog({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [showDied, setShowDied] = useState(false);
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [cropArea, setCropArea] = useState<Area | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Case-insensitive match for the name currently typed: this register's own
@@ -765,42 +767,75 @@ function PersonDialog({
     setImageStorageId(editing?.imageStorageId ?? null);
     setPreviewUrl(editing?.imageUrl ?? null);
     setShowDied(editing?.deathYear != null);
+    setCropSrc(null);
   }
   if (!open && prefillKey !== null) {
     setPrefillKey(null);
   }
 
-  // Couples for the Parents picker: each partnered pair offered as one unit.
-  const couples = useMemo(() => {
-    const seen = new Set<string>();
-    const list: { key: string; father: Person; mother: Person }[] = [];
-    for (const m of members) {
-      if (!m.partnerId) continue;
-      const partner = members.find((x) => x._id === m.partnerId);
-      if (!partner) continue;
-      const key = [m._id, partner._id].sort().join("|");
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const father =
-        m.sex === "male" && partner.sex !== "male"
-          ? m
-          : partner.sex === "male" && m.sex !== "male"
-          ? partner
-          : (m.birthYear ?? 9999) <= (partner.birthYear ?? 9999)
-          ? m
-          : partner;
-      const mother = father._id === m._id ? partner : m;
-      list.push({ key, father, mother });
-    }
-    return list;
-  }, [members]);
-  const selfExcluded = editing ? new Set<string>([editing._id]) : new Set<string>();
-  const partnerOptions = members.filter((m) => !selfExcluded.has(m._id));
-  const foreignPartnerOptions = (otherMembers ?? []).filter(
-    (m) => !selfExcluded.has(m._id),
-  );
+  const born = yearOf(form.birthYear);
+  const named = (p: Person) => `${p.name}${p.birthYear ? ` (${p.birthYear})` : ""}`;
+  const notSelf = (p: Person) => p._id !== editing?._id;
+  const isSet = (v: string) => !!v && v !== NONE;
+  const byYear = (a?: number, b?: number) => (a ?? 9999) - (b ?? 9999);
 
-  const handleFile = async (file?: File) => {
+  // Father / Mother: men or women (unrecorded sex stays listed) born before
+  // this person (unknown years stay listed), oldest first.
+  const older = (p: Person) => born == null || p.birthYear == null || p.birthYear < born;
+  const parentPicks = (not: "male" | "female", current: string): PickOption[] => {
+    const list: PickOption[] = members
+      .filter((m) => notSelf(m) && m.sex !== not && older(m))
+      .sort((a, b) => byYear(a.birthYear, b.birthYear))
+      .map((m) => ({ value: m._id, label: named(m) }));
+    // Keep an already-recorded parent listed even if they no longer fit.
+    const p = members.find((m) => m._id === current);
+    if (p && !list.some((o) => o.value === current)) list.unshift({ value: current, label: named(p) });
+    return list;
+  };
+  // Picking one parent fills in the other with their recorded partner, if empty.
+  const partnerIn = (id: string) => members.find((m) => m._id === id)?.partnerId;
+  const pickParent = (role: "fatherId" | "motherId", other: "fatherId" | "motherId", id: string) => {
+    const spouse = isSet(id) ? partnerIn(id) : undefined;
+    set({
+      [role]: id,
+      ...(spouse && !isSet(form[other]) && members.some((m) => m._id === spouse) ? { [other]: spouse } : {}),
+    });
+  };
+
+  // Partner: the opposite sex (unrecorded sex stays listed), born within
+  // 10 years of this person, not already partnered to someone else (picking
+  // them would unlink their spouse); the curator's other register comes after.
+  const partnered = new Set(
+    [...members, ...(otherMembers ?? [])]
+      .filter((m) => m.partnerId && m._id !== editing?._id)
+      .flatMap((m) => [m._id as string, m.partnerId as string]),
+  );
+  const fits = (p: Person) =>
+    notSelf(p) &&
+    !partnered.has(p._id) &&
+    (form.sex === NONE || !p.sex || p.sex !== form.sex) &&
+    (born == null || p.birthYear == null || Math.abs(p.birthYear - born) <= 10);
+  const otherName = allRegisters?.find((f) => f._id === otherRegisterId)?.name;
+  const partnerPicks: PickOption[] = [
+    ...members.filter(fits).sort((a, b) => byYear(a.birthYear, b.birthYear)).map((m) => ({ value: m._id, label: named(m) })),
+    ...(otherMembers ?? [])
+      .filter(fits)
+      .sort((a, b) => byYear(a.birthYear, b.birthYear))
+      .map((m) => ({ value: m._id, label: named(m), group: `From · ${otherName ?? "another register"}` })),
+  ];
+  if (isSet(form.partnerId) && !partnerPicks.some((o) => o.value === form.partnerId)) {
+    const p = [...members, ...(otherMembers ?? [])].find((m) => m._id === form.partnerId);
+    partnerPicks.unshift({ value: form.partnerId, label: p ? named(p) : "Recorded partner" });
+  }
+
+  // A chosen photo is framed first: the curator drags/zooms a square, the
+  // circle inside shows what the tree displays, and only that square uploads.
+  const closeCrop = () => {
+    if (cropSrc) URL.revokeObjectURL(cropSrc);
+    setCropSrc(null);
+    if (fileRef.current) fileRef.current.value = "";
+  };
+  const handleFile = (file?: File) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       toast.error("Choose an image file.");
@@ -810,18 +845,27 @@ function PersonDialog({
       toast.error("Keep photographs under 5 MB.");
       return;
     }
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
+    setCropArea(null);
+    setCropSrc(URL.createObjectURL(file));
+  };
+  const confirmCrop = async () => {
+    if (!cropSrc || !cropArea) return;
     setUploading(true);
     try {
+      const blob = await cropToBlob(cropSrc, cropArea);
       const uploadUrl = await generateUploadUrl();
       const res = await fetch(uploadUrl, {
         method: "POST",
-        headers: { "Content-Type": file.type },
-        body: file,
+        headers: { "Content-Type": blob.type },
+        body: blob,
       });
       if (!res.ok) throw new Error("The photograph could not be filed.");
       const { storageId } = (await res.json()) as { storageId: Id<"_storage"> };
       setImageStorageId(storageId);
-      setPreviewUrl(URL.createObjectURL(file));
+      setPreviewUrl(URL.createObjectURL(blob));
+      closeCrop();
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Could not upload photograph.",
@@ -1043,28 +1087,75 @@ function PersonDialog({
             </div>
           </div>
 
-          <ParentsField
-            fatherId={form.fatherId}
-            motherId={form.motherId}
-            couples={couples}
-            onPickCouple={(fid, mid) => set({ fatherId: fid, motherId: mid })}
-            onClear={() => set({ fatherId: NONE, motherId: NONE })}
-          />
-          <RelationField
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <SearchField
+              label="Father"
+              value={form.fatherId}
+              options={parentPicks("female", form.fatherId)}
+              onChange={(v) => pickParent("fatherId", "motherId", v)}
+            />
+            <SearchField
+              label="Mother"
+              value={form.motherId}
+              options={parentPicks("male", form.motherId)}
+              onChange={(v) => pickParent("motherId", "fatherId", v)}
+            />
+          </div>
+          <SearchField
             label="Partner"
             value={form.partnerId}
+            options={partnerPicks}
             onChange={(v) => set({ partnerId: v })}
-            options={partnerOptions}
-            foreignOptions={foreignPartnerOptions}
-            foreignLabel={
-              allRegisters?.find((f) => f._id === otherRegisterId)?.name
-            }
           />
 
           <div>
             <Label className="label-archival text-muted-foreground">
               Photograph
             </Label>
+            {cropSrc ? (
+              <div className="mt-1.5 space-y-3">
+                <div className="relative h-64 w-full overflow-hidden rounded-sm bg-muted">
+                  <Cropper
+                    image={cropSrc}
+                    crop={crop}
+                    zoom={zoom}
+                    aspect={1}
+                    maxZoom={8}
+                    showGrid={false}
+                    onCropChange={setCrop}
+                    onZoomChange={setZoom}
+                    onCropComplete={(_, px) => setCropArea(px)}
+                    classes={{
+                      // The circle inside the square: what the tree shows.
+                      cropAreaClassName:
+                        "after:pointer-events-none after:absolute after:inset-0 after:rounded-full after:border-2 after:border-white/90 after:content-['']",
+                    }}
+                  />
+                </div>
+                <input
+                  type="range"
+                  min={1}
+                  max={8}
+                  step={0.01}
+                  value={zoom}
+                  onChange={(e) => setZoom(Number(e.target.value))}
+                  aria-label="Zoom photograph"
+                  className="w-full accent-primary"
+                />
+                <p className="text-xs italic text-muted-foreground">
+                  Drag to move, scroll or pinch to zoom. The circle shows what the tree will display.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="ghost" size="sm" onClick={closeCrop}>
+                    Cancel
+                  </Button>
+                  <Button type="button" size="sm" disabled={!cropArea || uploading} onClick={confirmCrop} className="gap-2">
+                    {uploading && <Loader2 className="size-3.5 animate-spin" />}
+                    Use this framing
+                  </Button>
+                </div>
+              </div>
+            ) : (
             <div className="mt-1.5 flex flex-wrap items-center gap-3">
               {previewUrl ? (
                 <img
@@ -1111,6 +1202,7 @@ function PersonDialog({
                 </Button>
               )}
             </div>
+            )}
           </div>
 
           <p className="text-xs italic leading-relaxed text-muted-foreground">

@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --experimental-strip-types scripts/check-tree-layout.ts"
   },
   "dependencies": {
     "@convex-dev/auth": "^0.0.90",
@@ -59,10 +60,12 @@
     "react": "^19.2.0",
     "react-day-picker": "9.13.0",
     "react-dom": "^19.2.0",
+    "react-easy-crop": "^5.5.7",
     "react-hook-form": "^7.67.0",
     "react-intersection-observer": "^10.0.0",
     "react-resizable-panels": "^3.0.6",
     "react-router": "^7.10.0",
+    "reactflow": "^11.11.4",
     "recharts": "^2.15.4",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
