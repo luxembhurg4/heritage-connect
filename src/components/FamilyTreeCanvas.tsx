@@ -129,13 +129,31 @@ export default function FamilyTreeCanvas({
   const wrapRef = useRef<HTMLDivElement>(null);
   const [full, setFull] = useState(false);
   useEffect(() => {
-    const onChange = () => {
-      setFull(document.fullscreenElement === wrapRef.current);
-      // Refit once the canvas has taken its new size.
-      window.setTimeout(() => flow?.fitView({ maxZoom: 1, duration: 300 }), 50);
-    };
+    const onChange = () => setFull(document.fullscreenElement === wrapRef.current);
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  // Refit whenever the canvas changes size (window resized or snapped, full
+  // screen). Small height-only changes are skipped: phone browsers resize the
+  // page as the address bar slides while scrolling.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || !flow) return;
+    let last = { w: el.clientWidth, h: el.clientHeight };
+    let timer: number | undefined;
+    const observer = new ResizeObserver(() => {
+      const w = el.clientWidth, h = el.clientHeight;
+      if (w === last.w && Math.abs(h - last.h) < 100) return;
+      last = { w, h };
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => flow.fitView({ maxZoom: 1, duration: 200 }), 150);
+    });
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(timer);
+    };
   }, [flow]);
   const toggleFull = () =>
     document.fullscreenElement ? document.exitFullscreen() : wrapRef.current?.requestFullscreen();
