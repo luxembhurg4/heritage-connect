@@ -1,5 +1,6 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type QueryCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 
 const personFields = {
@@ -23,14 +24,25 @@ export const generateUploadUrl = mutation({
   },
 });
 
+/** A photo's URL depends on the deployment serving it (it changed when the
+ *  data moved to the cloud), so resolve it on read instead of trusting the
+ *  copy stored at upload time. */
+export async function withPhoto<
+  T extends { imageStorageId?: Id<"_storage">; imageUrl?: string },
+>(ctx: QueryCtx, p: T): Promise<T> {
+  if (!p.imageStorageId) return p;
+  return { ...p, imageUrl: (await ctx.storage.getUrl(p.imageStorageId)) ?? p.imageUrl };
+}
+
 /** Everyone in a register. Public — the archive is browsable by anyone. */
 export const listByFamily = query({
   args: { familyId: v.id("families") },
   handler: async (ctx, { familyId }) => {
-    return await ctx.db
+    const people = await ctx.db
       .query("people")
       .withIndex("by_family", (q) => q.eq("familyId", familyId))
       .collect();
+    return await Promise.all(people.map((p) => withPhoto(ctx, p)));
   },
 });
 

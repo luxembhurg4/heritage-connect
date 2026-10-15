@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { Id } from "./_generated/dataModel";
+import { withPhoto } from "./people";
 
 /** Case-insensitive name lookup across every register the user owns. Used by
  *  the entry dialog so a new name auto-fills with an existing person's data. */
@@ -212,7 +213,7 @@ export const remoteBranch = query({
     const spouse = person?.partnerId ? await ctx.db.get(person.partnerId) : null;
     if (!spouse) return null;
     const family = await ctx.db.get(spouse.familyId);
-    return { familyName: family?.name ?? "", spouse: pv(spouse) };
+    return { familyName: family?.name ?? "", spouse: pv(await withPhoto(ctx, spouse)) };
   },
 });
 
