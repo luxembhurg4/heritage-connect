@@ -6,6 +6,8 @@ import { defineConfig } from "vite";
 
 // https://vite.dev/config/
 export default defineConfig({
+  // GitHub Pages serves the site under /<repo>/; the Pages workflow sets this.
+  base: process.env.VITE_BASE ?? "/",
   plugins: [react(), vlyPlugin(), tailwindcss()],
   resolve: {
     alias: {
