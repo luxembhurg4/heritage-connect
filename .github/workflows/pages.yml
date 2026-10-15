@@ -1,6 +1,6 @@
 # Builds the site and publishes it to GitHub Pages on every push to main.
-# Needs: Settings → Pages → Source = "GitHub Actions", and a repository
-# variable VITE_CONVEX_URL holding the production Convex URL.
+# Needs: Settings → Pages → Source = "GitHub Actions". The production Convex
+# URL is below; a repository variable VITE_CONVEX_URL overrides it.
 name: Deploy to GitHub Pages
 
 on:
@@ -31,7 +31,8 @@ jobs:
         run: npm run build
         env:
           VITE_BASE: /${{ github.event.repository.name }}/
-          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
+          # Not a secret: it ships inside the built JS. The repo variable wins if set.
+          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL || 'https://acoustic-spider-927.convex.cloud' }}
       # Pages has no SPA fallback: serve the app for deep links like /families/x.
       - run: cp dist/index.html dist/404.html
       - uses: actions/upload-pages-artifact@v3
