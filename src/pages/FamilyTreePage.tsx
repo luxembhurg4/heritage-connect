@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
-import { ArrowLeft, ListTree, Table2 } from "lucide-react";
+import { ArrowLeft, ListTree, Share2, Table2 } from "lucide-react";
+import { toast } from "sonner";
 import { Link, useParams } from "react-router";
 import FamilyTreeCanvas from "@/components/FamilyTreeCanvas";
 import { PublicNav } from "@/components/branding";
@@ -156,6 +157,16 @@ export default function FamilyTreePage() {
               </p>
             )}
           </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0 gap-2 sm:ml-auto"
+            onClick={() => shareRegister(family.name, family.slug)}
+          >
+            <Share2 className="size-3.5" />
+            Share
+          </Button>
         </div>
       </header>
 
@@ -300,4 +311,19 @@ export default function FamilyTreePage() {
 
 function lookupName(id: Id<"people">, people: Person[]): string {
   return people.find((p) => p._id === id)?.name ?? "—";
+}
+
+/** Phones get the share sheet; elsewhere the public link is copied. */
+async function shareRegister(name: string, slug: string) {
+  const url = `${window.location.origin}${import.meta.env.BASE_URL}families/${slug}`;
+  if (navigator.share && window.matchMedia("(pointer: coarse)").matches) {
+    await navigator.share({ title: name, url }).catch(() => {}); // dismissed sheet
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast.success("Link copied", { description: url });
+  } catch {
+    toast.error("Could not copy the link", { description: url });
+  }
 }
