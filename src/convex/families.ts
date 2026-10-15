@@ -1,5 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 export const DEMO_SLUG = "whitmore-family-archive";
@@ -258,3 +258,26 @@ async function requireCurator(ctx: any, familyId: any) {
   }
   return family;
 }
+
+/**
+ * Hand a register to the curator with this email (they must have signed in
+ * once). Server-only: run from the Convex dashboard or
+ * `npx convex run families:transferRegister '{"slug":"…","email":"…"}'`.
+ */
+export const transferRegister = internalMutation({
+  args: { slug: v.string(), email: v.string() },
+  handler: async (ctx, { slug, email }) => {
+    const family = await ctx.db
+      .query("families")
+      .withIndex("by_slug", (q) => q.eq("slug", slug))
+      .unique();
+    if (!family) throw new Error(`No register with slug "${slug}".`);
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", email.toLowerCase()))
+      .first();
+    if (!user) throw new Error(`No account with email ${email}; they must sign in once first.`);
+    await ctx.db.patch(family._id, { createdBy: user._id });
+    return `${family.name} now belongs to ${email}.`;
+  },
+});

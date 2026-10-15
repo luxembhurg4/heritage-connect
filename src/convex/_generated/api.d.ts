@@ -9,7 +9,6 @@
  */
 
 import type * as auth from "../auth.js";
-import type * as auth_emailOtp from "../auth/emailOtp.js";
 import type * as families from "../families.js";
 import type * as graph from "../graph.js";
 import type * as http from "../http.js";
@@ -25,7 +24,6 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
-  "auth/emailOtp": typeof auth_emailOtp;
   families: typeof families;
   graph: typeof graph;
   http: typeof http;
